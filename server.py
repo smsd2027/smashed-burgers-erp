@@ -45,7 +45,7 @@ SB_ENABLED = bool(SB_URL and SB_KEY)
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
        "img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com; "
-       "worker-src blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+       "worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
 
 def read_json(path):
@@ -295,6 +295,24 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == '/manifest.webmanifest':
+            try:
+                with open(os.path.join(BASE, 'manifest.webmanifest'), 'r', encoding='utf-8') as f:
+                    return self.send(200, f.read(), 'application/manifest+json; charset=utf-8', 'public, max-age=3600')
+            except OSError:
+                return self.send(404, 'not found', 'text/plain')
+        if u.path == '/sw.js':
+            try:
+                with open(os.path.join(BASE, 'sw.js'), 'r', encoding='utf-8') as f:
+                    return self.send(200, f.read(), 'application/javascript; charset=utf-8', 'no-cache')
+            except OSError:
+                return self.send(404, 'not found', 'text/plain')
+        if u.path in ('/icon-192.png', '/icon-512.png'):
+            try:
+                with open(os.path.join(BASE, u.path.lstrip('/')), 'rb') as f:
+                    return self.send(200, f.read(), 'image/png', 'public, max-age=604800')
+            except OSError:
+                return self.send(404, 'not found', 'text/plain')
         if u.path in ('/', '/index.html', '/smashed-burgers-erp.html'):
             try:
                 return self.send(200, public_html(), 'text/html; charset=utf-8')

@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smashed Burgers ERP</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#2a2a2a"><link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Serif:wght@400;500;600;700;800&display=swap">
 <style>
 :root{--bg:#f1f0ec;--ink:#232323;--card:#fff;--line:#e4e1da;--mu:#f5a800;--mu2:#e09b00;--red:#c0392b;--grn:#2c7a4b;--mut:#6e6e68;--side:#2a2a2a;--soft:#faf8f3}
@@ -312,4 +313,4 @@ save();toast('Backup restored');r()}catch(e){alert('That file is not an ERP back
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
 start();
 
-</script></body></html>
+</script><script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}</script></body></html>
