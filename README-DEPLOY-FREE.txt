@@ -104,3 +104,11 @@ The Admin Quick Access area currently provides shortcuts to tab-level add forms;
 it does not yet relocate every add form into one central screen. Supabase automatic
 point-in-time backups are not configured by this application; download backups
 regularly and use Supabase's own backup/export options where available.
+
+
+iPhone / iPad installation (iOS):
+1. Open the live HTTPS Render website in Safari (not an in-app browser).
+2. Tap the Share button.
+3. Choose Add to Home Screen.
+4. Enable Open as Web App if iOS shows that option, then tap Add.
+The app icon uses apple-touch-icon.png. iOS does not show a Chrome-style automatic install prompt; installation is done through Safari's Share menu. An internet connection is still required for live ERP data.

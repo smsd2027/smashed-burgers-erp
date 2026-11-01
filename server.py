@@ -402,7 +402,7 @@ class H(BaseHTTPRequestHandler):
                     return self.send(200, f.read(), 'application/javascript; charset=utf-8', 'no-cache')
             except OSError:
                 return self.send(404, 'not found', 'text/plain')
-        if u.path in ('/icon-192.png', '/icon-512.png'):
+        if u.path in ('/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'):
             try:
                 with open(os.path.join(BASE, u.path.lstrip('/')), 'rb') as f:
                     return self.send(200, f.read(), 'image/png', 'public, max-age=604800')
