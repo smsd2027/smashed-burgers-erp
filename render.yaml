@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: smashed-burgers-erp
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: ERP_TRUST_PROXY
+        value: "1"
+      - key: ERP_ADMIN_PASSWORD
+        sync: false
+      - key: ERP_VISITOR_PASSWORD
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
