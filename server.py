@@ -25,7 +25,11 @@ BACKUPS = os.path.join(DATA_DIR, 'backups')
 IMG_DIR = os.path.join(DATA_DIR, 'images')
 ID_RE = re.compile(r'^[A-Za-z0-9_-]{6,48}$')
 MAX_IMG = 6 * 1024 * 1024
-ROLES = {'admin': 'admin', 'smashed': 'visitor'}
+ROLES = {'admin': 'admin', 'smashed': 'visitor', 'staff': 'limited', 'cashier': 'cashier'}
+# Legacy staff remains restricted to Expenses/Dispatch. Cashier can use Inventory/Dispatch only.
+LIM_WRITE = {'dp': list, 'ex': dict, 'cx': list, 'ci': list}
+CASHIER_SALT = 'cea2a4d13ce327dc7073ddacba94b056'
+CASHIER_HASH = 'ab0b498c738b6fdd89dd78a1bf9110d70ef5f8fa0267224fde1e067cb909cdbe'
 # first-time passwords, stored only as salted hashes. Change them inside the ERP.
 DEFAULTS = {
     'admin': 'e7e180f59a43395b07b83287fdec239b6604b0aa0358e8462f02a1750adf2cef',
@@ -173,8 +177,12 @@ def check_password(name, pw):
     if name not in ROLES:
         return False
     rec = USERS.get(name)
+    if name == 'cashier' and not rec:
+        return hmac.compare_digest(CASHIER_HASH, pbk(pw, bytes.fromhex(CASHIER_SALT)))
     if rec:
         return hmac.compare_digest(rec['hash'], pbk(pw, bytes.fromhex(rec['salt'])))
+    if name not in DEFAULTS:      # the staff account only exists once the admin has created its password
+        return False
     legacy = hashlib.sha256(('sb-erp|%s|%s' % (name, pw)).encode('utf-8')).hexdigest()
     return hmac.compare_digest(DEFAULTS[name], legacy)
 
@@ -196,7 +204,43 @@ def init_env_passwords():
 
 
 def weak():
-    return any(n not in USERS for n in ROLES)
+    return any(n not in USERS for n in ('admin', 'smashed'))
+
+
+def limited_view(data_str):
+    """What the staff account is allowed to receive: dispatch, expenses and just enough stock info."""
+    try:
+        d = json.loads(data_str)
+    except Exception:
+        return 'null'
+    if not isinstance(d, dict):
+        return 'null'
+    out = {
+        'items': [{'n': i.get('n'), 'c': i.get('c'), 'u': i.get('u'), 'p': 0} for i in d.get('items', []) if isinstance(i, dict)],
+        'rc': [{'d': x.get('d'), 'i': x.get('i'), 'q': x.get('q')} for x in d.get('rc', []) if isinstance(x, dict)],
+        'dp': d.get('dp', []), 'ex': d.get('ex', {}), 'ec': d.get('ec', []), 'fp': d.get('fp', 35),
+        'cx': d.get('cx', []), 'ci': d.get('ci', []), 'br': d.get('br', []),
+        'sales': {}, 'units': [], 'menu': [], 'ds': {}, 'rv': [], 'st': [], 'pr': {}, 'vd': [], 'py': [], 'al': {},
+        'nid': 1, 'mid': 0,
+    }
+    return json.dumps(out, separators=(',', ':'), ensure_ascii=False)
+
+
+def cashier_view(data_str):
+    try:
+        d = json.loads(data_str)
+    except Exception:
+        return 'null'
+    if not isinstance(d, dict):
+        return 'null'
+    return json.dumps({
+        'items': [{'n': i.get('n'), 'c': i.get('c'), 'u': i.get('u'), 'p': 0} for i in d.get('items', []) if isinstance(i, dict)],
+        'rc': d.get('rc', []), 'dp': d.get('dp', []),
+        'vd': [{'n': v.get('n')} for v in d.get('vd', []) if isinstance(v, dict)],
+        'br': d.get('br', []), 'units': [], 'menu': [], 'ds': {}, 'sales': {},
+        'rv': [], 'st': [], 'pr': {}, 'py': [], 'ex': {}, 'ec': [], 'cx': [], 'ci': [],
+        'al': {}, 'nid': d.get('nid', 1), 'mid': 0, 'fp': 0
+    }, separators=(',', ':'), ensure_ascii=False)
 
 
 SEED_RE = re.compile(r'^let (ITEMS|MENU|SALES|VEND|STAFF)="(.*)";$', re.M)
@@ -328,14 +372,21 @@ class H(BaseHTTPRequestHandler):
                 return self.send(401, '{"error":"login"}')
             q = parse_qs(u.query).get('v')
             w = 'true' if (role == 'admin' and weak()) else 'false'
+            sf = 'true' if role == 'admin' else 'false'
             with LOCK:
                 v, data = STATE['v'], STATE['data']
             if q and q[0] == str(v):
-                return self.send(200, '{"same":true,"v":%d,"role":"%s","weak":%s}' % (v, role, w))
-            return self.send(200, '{"v":%d,"role":"%s","weak":%s,"data":%s}' % (v, role, w, data))
+                return self.send(200, '{"same":true,"v":%d,"role":"%s","weak":%s,"staff":%s}' % (v, role, w, sf))
+            if role == 'limited':
+                data = limited_view(data)
+            elif role == 'cashier':
+                data = cashier_view(data)
+            return self.send(200, '{"v":%d,"role":"%s","weak":%s,"staff":%s,"data":%s}' % (v, role, w, sf, data))
         if u.path.startswith('/api/img/'):
             if not role:
                 return self.send(401, '{"error":"login"}')
+            if role in ('limited', 'cashier'):
+                return self.send(403, '{"error":"not allowed"}')
             iid = u.path[len('/api/img/'):]
             if not ID_RE.match(iid):
                 return self.send(404, '{"error":"not found"}')
@@ -403,6 +454,45 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, '{"ok":true}')
         if not role:
             return self.send(401, '{"error":"login"}')
+        if role in ('limited', 'cashier') and u.path == '/api/data':
+            j = self.body_json()
+            if not isinstance(j, dict) or not isinstance(j.get('data'), dict):
+                return self.send(400, '{"error":"bad data"}')
+            try:
+                base = int(j.get('base', -1))
+            except (TypeError, ValueError):
+                return self.send(400, '{"error":"bad version"}')
+            new = j['data']
+            allowed = ({'dp': list, 'rc': list, 'items': list} if role == 'cashier' else LIM_WRITE)
+            for k, typ in allowed.items():
+                if k in new and not isinstance(new[k], typ):
+                    return self.send(400, '{"error":"bad data"}')
+            with LOCK:
+                if base != STATE['v']:
+                    view = cashier_view(STATE['data']) if role == 'cashier' else limited_view(STATE['data'])
+                    return self.send(409, '{"v":%d,"data":%s}' % (STATE['v'], view))
+                try:
+                    cur = json.loads(STATE['data'])
+                except Exception:
+                    cur = None
+                if not isinstance(cur, dict):
+                    return self.send(400, '{"error":"no data yet"}')
+                if role == 'cashier':
+                    if 'dp' in new: cur['dp'] = new['dp']
+                    if 'rc' in new: cur['rc'] = new['rc']
+                    if 'items' in new:
+                        existing = {str(i.get('n','')).casefold() for i in cur.get('items', []) if isinstance(i, dict)}
+                        for item in new['items']:
+                            if isinstance(item, dict) and item.get('n') and str(item['n']).casefold() not in existing:
+                                cur.setdefault('items', []).append({'n': str(item['n'])[:100], 'c': str(item.get('c',''))[:60], 'u': str(item.get('u',''))[:20], 'p': 0})
+                                existing.add(str(item['n']).casefold())
+                else:
+                    for k in LIM_WRITE:
+                        if k in new: cur[k] = new[k]
+                STATE['v'] += 1
+                STATE['data'] = json.dumps(cur, separators=(',', ':'), ensure_ascii=False)
+                persist()
+                return self.send(200, '{"v":%d}' % STATE['v'])
         if role != 'admin':
             return self.send(403, '{"error":"view only"}')
         if u.path in ('/api/img', '/api/img-del'):
@@ -453,7 +543,7 @@ class H(BaseHTTPRequestHandler):
             if not check_password('admin', cur):
                 self.fail(ip)
                 return self.send(403, '{"error":"Your current admin password is not correct."}')
-            if who not in ROLES:
+            if who not in ('admin', 'smashed', 'staff', 'cashier'):
                 return self.send(400, '{"error":"Unknown account."}')
             if len(new) < 8:
                 return self.send(400, '{"error":"Use at least 8 characters."}')

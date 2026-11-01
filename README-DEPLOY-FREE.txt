@@ -60,3 +60,25 @@ TROUBLESHOOTING
 - If Render says Supabase is not configured, check the four Environment variables above.
 - If login fails, check that both ERP passwords were saved in Render Environment and wait for redeploy.
 - If SQL fails, make sure you ran the entire supabase-setup.sql in the correct Supabase project.
+
+------------------------------------------------------------
+WHAT'S NEW IN THIS VERSION (no new environment variables needed)
+------------------------------------------------------------
+1. DOWNLOAD PDF - a "Download PDF" button sits beside "Print" on every tab. It builds
+   the PDF inside the app (works offline, no extra service). Admin > "Download full
+   report (PDF)" creates one PDF with every tab for the selected month.
+2. CASH BOOKS - the "Smashed Burger" cash book was removed from Expenses > Expense from
+   cash. Older entries in it are kept but hidden; Admin shows a button to delete them.
+3. ADMIN PANEL (admin only) - new "Admin" tab: monthly checklist, items needing attention
+   (menu items without cost, inventory items without price, negative stock, open reviews,
+   vendor dues), business settings (Foodpanda %, add a branch, expense lines),
+   accounts and access, record counts, backup/restore and the full PDF report.
+4. CASHIER ACCOUNT (Inventory and Dispatch only)
+   - Sign-in ID: Cashier
+   - Initial password is provided to the owner separately; change it from Admin > Change passwords after rollout.
+   - The server sends this account only inventory/dispatch data and vendor names needed
+     for stock receiving. It cannot access sales, expenses, salaries, vendor balances,
+     menu costs, reviews or Admin settings. Server-side write restrictions are enforced.
+5. Legacy Staff login, if previously configured, remains restricted to Dispatch and Expenses.
+6. Unchanged: Supabase storage, Render settings, environment variable names, database
+   table, PWA manifest, service worker and icons.
