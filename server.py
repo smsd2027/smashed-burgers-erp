@@ -2,8 +2,7 @@
 """Smashed Burgers ERP - server for your own computer.
 
 Run it on the main computer. Everyone you give the address to sees the same live data.
-All data stays in erp-data.json next to this file. Snapshots are saved in "backups".
-To reach it from anywhere, share it through a tunnel (see HOW-TO-GO-ONLINE.txt).
+Shared ERP data is stored in Supabase when configured; local mode uses erp-data.json and local snapshots.
 """
 import gzip, hashlib, hmac, json, os, re, secrets, socket, threading, time, zlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -26,8 +25,9 @@ IMG_DIR = os.path.join(DATA_DIR, 'images')
 ID_RE = re.compile(r'^[A-Za-z0-9_-]{6,48}$')
 MAX_IMG = 6 * 1024 * 1024
 ROLES = {'admin': 'admin', 'smashed': 'visitor', 'staff': 'limited', 'cashier': 'cashier'}
-# Legacy staff remains restricted to Expenses/Dispatch. Cashier can use Inventory/Dispatch only.
+# Legacy staff remains restricted. Cashier may fully manage only Expenses, Inventory and Dispatch.
 LIM_WRITE = {'dp': list, 'ex': dict, 'cx': list, 'ci': list}
+CASHIER_WRITE = {'dp': list, 'rc': list, 'items': list, 'ex': dict, 'ec': list, 'cx': list, 'ci': list}
 CASHIER_SALT = 'cea2a4d13ce327dc7073ddacba94b056'
 CASHIER_HASH = 'ab0b498c738b6fdd89dd78a1bf9110d70ef5f8fa0267224fde1e067cb909cdbe'
 # first-time passwords, stored only as salted hashes. Change them inside the ERP.
@@ -55,6 +55,57 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.clou
 def read_json(path):
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def validate_tree(value, depth=0, budget=None):
+    """Reject malformed/oversized JSON values before they reach shared ERP state."""
+    if budget is None:
+        budget = [0]
+    budget[0] += 1
+    if budget[0] > 100000 or depth > 12:
+        return False
+    if value is None or isinstance(value, (bool, int)):
+        return True
+    if isinstance(value, float):
+        return value == value and abs(value) != float('inf')
+    if isinstance(value, str):
+        return len(value) <= 20000
+    if isinstance(value, list):
+        return len(value) <= 20000 and all(validate_tree(x, depth + 1, budget) for x in value)
+    if isinstance(value, dict):
+        return len(value) <= 5000 and all(
+            isinstance(k, str) and len(k) <= 200 and validate_tree(v, depth + 1, budget)
+            for k, v in value.items()
+        )
+    return False
+
+
+def valid_cashier_payload(data):
+    """Cashier may submit only the three permitted modules and their supporting fields."""
+    allowed = set(CASHIER_WRITE)
+    if not isinstance(data, dict) or not set(data).issubset(allowed):
+        return False
+    if not validate_tree(data):
+        return False
+    for key, typ in CASHIER_WRITE.items():
+        if key in data and not isinstance(data[key], typ):
+            return False
+    items = data.get('items', [])
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            return False
+        name = item.get('n')
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 160:
+            return False
+        norm = name.strip().casefold()
+        if norm in seen:
+            return False
+        seen.add(norm)
+        for field in ('c', 'u'):
+            if field in item and (not isinstance(item[field], str) or len(item[field]) > 120):
+                return False
+    return True
 
 
 def sb_request(path, method='GET', payload=None, raw=None, content_type='application/json'):
@@ -455,7 +506,46 @@ class H(BaseHTTPRequestHandler):
         if not role:
             return self.send(401, '{"error":"login"}')
         if role == 'cashier' and u.path == '/api/data':
-            return self.send(403, '{"error":"Cashier has view-only access. Ask Admin to add or change records."}')
+            j = self.body_json()
+            if not isinstance(j, dict) or not isinstance(j.get('data'), dict):
+                return self.send(400, '{"error":"bad data"}')
+            try:
+                base = int(j.get('base', -1))
+            except (TypeError, ValueError):
+                return self.send(400, '{"error":"bad version"}')
+            new = j['data']
+            if not valid_cashier_payload(new):
+                return self.send(400, '{"error":"Invalid or unsupported Cashier data. Check the entries and try again."}')
+            with LOCK:
+                if base != STATE['v']:
+                    return self.send(409, '{"v":%d,"data":%s}' % (STATE['v'], cashier_view(STATE['data'])))
+                try:
+                    cur = json.loads(STATE['data'])
+                except Exception:
+                    cur = None
+                if not isinstance(cur, dict):
+                    return self.send(400, '{"error":"no data yet"}')
+                # Only accept the three permitted modules. Preserve all protected fields.
+                for k in ('dp', 'rc', 'ex', 'ec', 'cx', 'ci'):
+                    if k in new:
+                        cur[k] = new[k]
+                if 'items' in new:
+                    old_by_name = {str(x.get('n', '')).casefold(): x for x in cur.get('items', []) if isinstance(x, dict)}
+                    clean = []
+                    for item in new['items']:
+                        if not isinstance(item, dict) or not str(item.get('n', '')).strip():
+                            return self.send(400, '{"error":"invalid inventory item"}')
+                        name = str(item.get('n', '')).strip()
+                        old = old_by_name.get(name.casefold(), (cur.get('items', [])[len(clean)] if len(clean) < len(cur.get('items', [])) and isinstance(cur.get('items', [])[len(clean)], dict) else {}))
+                        # Inventory item names/category/unit are editable; menu/cost fields remain Admin-only.
+                        clean.append({'n': name, 'c': str(item.get('c', old.get('c', ''))),
+                                      'u': str(item.get('u', old.get('u', ''))),
+                                      'p': old.get('p', 0)})
+                    cur['items'] = clean
+                STATE['v'] += 1
+                STATE['data'] = json.dumps(cur, separators=(',', ':'), ensure_ascii=False)
+                persist()
+                return self.send(200, '{"v":%d}' % STATE['v'])
         if role == 'limited' and u.path == '/api/data':
             j = self.body_json()
             if not isinstance(j, dict) or not isinstance(j.get('data'), dict):
@@ -552,8 +642,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, '{"ok":true}')
         if u.path == '/api/data':
             j = self.body_json()
-            if not isinstance(j, dict) or not isinstance(j.get('data'), dict) or 'items' not in j['data']:
-                return self.send(400, '{"error":"bad data"}')
+            if (not isinstance(j, dict) or not isinstance(j.get('data'), dict)
+                    or 'items' not in j['data'] or not validate_tree(j['data'])):
+                return self.send(400, '{"error":"Invalid or oversized ERP data. No changes were saved."}')
             try:
                 base = int(j.get('base', -1))
             except (TypeError, ValueError):

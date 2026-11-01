@@ -89,3 +89,18 @@ LATEST ACCESS-CONTROL UPDATE (2026-11-01)
 - Only the Admin session can change account passwords; the backend enforces this even if someone calls the API directly.
 - Cashier cannot open password-management controls.
 - Service worker cache version was increased so installed phones fetch the updated app shell.
+
+LATEST MAINTENANCE UPDATE
+- Backend now validates nested JSON size/depth and rejects malformed or unsupported
+  Cashier payload fields before saving.
+- Cashier inventory submissions reject blank/duplicate item names and oversized
+  item names/category/unit fields. Protected Admin fields remain server-owned.
+- Admin data submissions also receive recursive structure/size validation.
+- Service worker cache version has been incremented so deployed phones refresh
+  the updated app shell. API/business data is never cached offline.
+
+After deployment, test Admin and Cashier accounts and download a fresh data backup.
+The Admin Quick Access area currently provides shortcuts to tab-level add forms;
+it does not yet relocate every add form into one central screen. Supabase automatic
+point-in-time backups are not configured by this application; download backups
+regularly and use Supabase's own backup/export options where available.
