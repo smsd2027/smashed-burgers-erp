@@ -546,9 +546,16 @@ class H(BaseHTTPRequestHandler):
                                       'u': str(item.get('u', old.get('u', ''))),
                                       'p': old.get('p', 0)})
                     cur['items'] = clean
-                STATE['v'] += 1
+                old_v, old_data = STATE['v'], STATE['data']
+                STATE['v'] = old_v + 1
                 STATE['data'] = json.dumps(cur, separators=(',', ':'), ensure_ascii=False)
-                persist()
+                try:
+                    persist()
+                except Exception as e:
+                    # Do not leave an unsaved change visible in memory after a storage failure.
+                    STATE['v'], STATE['data'] = old_v, old_data
+                    print('ERROR: ERP data save failed: %s' % e)
+                    return self.send(503, '{"error":"Could not save to the database. No changes were committed; please try again."}')
                 return self.send(200, '{"v":%d}' % STATE['v'])
         if role == 'limited' and u.path == '/api/data':
             j = self.body_json()
@@ -575,9 +582,16 @@ class H(BaseHTTPRequestHandler):
                     return self.send(400, '{"error":"no data yet"}')
                 for k in LIM_WRITE:
                     if k in new: cur[k] = new[k]
-                STATE['v'] += 1
+                old_v, old_data = STATE['v'], STATE['data']
+                STATE['v'] = old_v + 1
                 STATE['data'] = json.dumps(cur, separators=(',', ':'), ensure_ascii=False)
-                persist()
+                try:
+                    persist()
+                except Exception as e:
+                    # Do not leave an unsaved change visible in memory after a storage failure.
+                    STATE['v'], STATE['data'] = old_v, old_data
+                    print('ERROR: ERP data save failed: %s' % e)
+                    return self.send(503, '{"error":"Could not save to the database. No changes were committed; please try again."}')
                 return self.send(200, '{"v":%d}' % STATE['v'])
         if role != 'admin':
             return self.send(403, '{"error":"view only"}')
@@ -656,9 +670,15 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 if base != STATE['v']:
                     return self.send(409, '{"v":%d,"data":%s}' % (STATE['v'], STATE['data']))
-                STATE['v'] += 1
+                old_v, old_data = STATE['v'], STATE['data']
+                STATE['v'] = old_v + 1
                 STATE['data'] = json.dumps(j['data'], separators=(',', ':'), ensure_ascii=False)
-                persist()
+                try:
+                    persist()
+                except Exception as e:
+                    STATE['v'], STATE['data'] = old_v, old_data
+                    print('ERROR: ERP data save failed: %s' % e)
+                    return self.send(503, '{"error":"Could not save to the database. No changes were committed; please try again."}')
                 return self.send(200, '{"v":%d}' % STATE['v'])
         self.send(404, '{"error":"not found"}')
 
