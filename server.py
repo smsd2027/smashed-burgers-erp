@@ -238,8 +238,8 @@ def cashier_view(data_str):
         'rc': d.get('rc', []), 'dp': d.get('dp', []),
         'vd': [{'n': v.get('n')} for v in d.get('vd', []) if isinstance(v, dict)],
         'br': d.get('br', []), 'units': [], 'menu': [], 'ds': {}, 'sales': {},
-        'rv': [], 'st': [], 'pr': {}, 'py': [], 'ex': {}, 'ec': [], 'cx': [], 'ci': [],
-        'al': {}, 'nid': d.get('nid', 1), 'mid': 0, 'fp': 0
+        'rv': [], 'st': [], 'pr': {}, 'py': [], 'ex': d.get('ex', {}), 'ec': d.get('ec', []), 'cx': d.get('cx', []), 'ci': d.get('ci', []),
+        'al': {}, 'nid': d.get('nid', 1), 'mid': 0, 'fp': d.get('fp', 0)
     }, separators=(',', ':'), ensure_ascii=False)
 
 
@@ -454,7 +454,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, '{"ok":true}')
         if not role:
             return self.send(401, '{"error":"login"}')
-        if role in ('limited', 'cashier') and u.path == '/api/data':
+        if role == 'cashier' and u.path == '/api/data':
+            return self.send(403, '{"error":"Cashier has view-only access. Ask Admin to add or change records."}')
+        if role == 'limited' and u.path == '/api/data':
             j = self.body_json()
             if not isinstance(j, dict) or not isinstance(j.get('data'), dict):
                 return self.send(400, '{"error":"bad data"}')
@@ -463,7 +465,7 @@ class H(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return self.send(400, '{"error":"bad version"}')
             new = j['data']
-            allowed = ({'dp': list, 'rc': list, 'items': list} if role == 'cashier' else LIM_WRITE)
+            allowed = LIM_WRITE
             for k, typ in allowed.items():
                 if k in new and not isinstance(new[k], typ):
                     return self.send(400, '{"error":"bad data"}')
@@ -477,18 +479,8 @@ class H(BaseHTTPRequestHandler):
                     cur = None
                 if not isinstance(cur, dict):
                     return self.send(400, '{"error":"no data yet"}')
-                if role == 'cashier':
-                    if 'dp' in new: cur['dp'] = new['dp']
-                    if 'rc' in new: cur['rc'] = new['rc']
-                    if 'items' in new:
-                        existing = {str(i.get('n','')).casefold() for i in cur.get('items', []) if isinstance(i, dict)}
-                        for item in new['items']:
-                            if isinstance(item, dict) and item.get('n') and str(item['n']).casefold() not in existing:
-                                cur.setdefault('items', []).append({'n': str(item['n'])[:100], 'c': str(item.get('c',''))[:60], 'u': str(item.get('u',''))[:20], 'p': 0})
-                                existing.add(str(item['n']).casefold())
-                else:
-                    for k in LIM_WRITE:
-                        if k in new: cur[k] = new[k]
+                for k in LIM_WRITE:
+                    if k in new: cur[k] = new[k]
                 STATE['v'] += 1
                 STATE['data'] = json.dumps(cur, separators=(',', ':'), ensure_ascii=False)
                 persist()
@@ -535,6 +527,9 @@ class H(BaseHTTPRequestHandler):
                 os.replace(path + '.tmp', path)
             return self.send(200, '{"ok":true}')
         if u.path == '/api/password':
+            # Password management is an owner-only operation. Never rely on UI hiding.
+            if role != 'admin':
+                return self.send(403, '{"error":"Only the Admin account can manage passwords."}')
             j = self.body_json(4096) or {}
             who, new, cur = str(j.get('who', '')), str(j.get('new', '')), str(j.get('cur', ''))
             msg = self.throttle(ip)

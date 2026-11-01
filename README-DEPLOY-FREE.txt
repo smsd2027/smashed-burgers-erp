@@ -82,3 +82,10 @@ WHAT'S NEW IN THIS VERSION (no new environment variables needed)
 5. Legacy Staff login, if previously configured, remains restricted to Dispatch and Expenses.
 6. Unchanged: Supabase storage, Render settings, environment variable names, database
    table, PWA manifest, service worker and icons.
+
+
+LATEST ACCESS-CONTROL UPDATE (2026-11-01)
+- Cashier is view-only for Inventory and Dispatch. Only Admin can create or change records.
+- Only the Admin session can change account passwords; the backend enforces this even if someone calls the API directly.
+- Cashier cannot open password-management controls.
+- Service worker cache version was increased so installed phones fetch the updated app shell.
