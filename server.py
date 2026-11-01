@@ -271,8 +271,10 @@ def limited_view(data_str):
         'rc': [{'d': x.get('d'), 'i': x.get('i'), 'q': x.get('q')} for x in d.get('rc', []) if isinstance(x, dict)],
         'dp': d.get('dp', []), 'ex': d.get('ex', {}), 'ec': d.get('ec', []), 'fp': d.get('fp', 35),
         'cx': d.get('cx', []), 'ci': d.get('ci', []), 'br': d.get('br', []),
-        'sales': {}, 'units': [], 'menu': [], 'ds': {}, 'rv': [], 'st': [], 'pr': {}, 'vd': [], 'py': [], 'al': {},
-        'nid': 1, 'mid': 0,
+        'sales': {}, 'units': [u for u in d.get('units', []) if isinstance(u, str)],
+        'menu': [{'id': m.get('id'), 'n': m.get('n'), 'c': m.get('c'), 'p': m.get('p', 0)} for m in d.get('menu', []) if isinstance(m, dict)],
+        'ds': d.get('ds', {}), 'rv': [], 'st': [], 'pr': {}, 'vd': [], 'py': [], 'al': {},
+        'nid': 1, 'mid': d.get('mid', 0),
     }
     return json.dumps(out, separators=(',', ':'), ensure_ascii=False)
 
@@ -288,9 +290,11 @@ def cashier_view(data_str):
         'items': [{'n': i.get('n'), 'c': i.get('c'), 'u': i.get('u'), 'p': 0} for i in d.get('items', []) if isinstance(i, dict)],
         'rc': d.get('rc', []), 'dp': d.get('dp', []),
         'vd': [{'n': v.get('n')} for v in d.get('vd', []) if isinstance(v, dict)],
-        'br': d.get('br', []), 'units': [], 'menu': [], 'ds': {}, 'sales': {},
+        'br': d.get('br', []), 'units': [u for u in d.get('units', []) if isinstance(u, str)],
+        'menu': [{'id': m.get('id'), 'n': m.get('n'), 'c': m.get('c'), 'p': m.get('p', 0)} for m in d.get('menu', []) if isinstance(m, dict)],
+        'ds': d.get('ds', {}), 'sales': {},
         'rv': [], 'st': [], 'pr': {}, 'py': [], 'ex': d.get('ex', {}), 'ec': d.get('ec', []), 'cx': d.get('cx', []), 'ci': d.get('ci', []),
-        'al': {}, 'nid': d.get('nid', 1), 'mid': 0, 'fp': d.get('fp', 0)
+        'al': {}, 'nid': d.get('nid', 1), 'mid': d.get('mid', 0), 'fp': d.get('fp', 0)
     }, separators=(',', ':'), ensure_ascii=False)
 
 
