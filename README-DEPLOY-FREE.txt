@@ -112,3 +112,17 @@ iPhone / iPad installation (iOS):
 3. Choose Add to Home Screen.
 4. Enable Open as Web App if iOS shows that option, then tap Add.
 The app icon uses apple-touch-icon.png. iOS does not show a Chrome-style automatic install prompt; installation is done through Safari's Share menu. An internet connection is still required for live ERP data.
+
+
+LATEST UPDATE (Nov 2026)
+- Expenses now has Transportation, Expense from cash, and Bills and rent (Admin only).
+- Transportation supports Car, CNG, Bike and Rickshaw and is automatically included in the cash expense ledger and daily closing calculation.
+- Cash book supports day-wise opening cash, cash sales, other cash-in, expenses and closing cash. Opening cash carries forward from the previous day's closing unless manually entered. Cash sale is a cash-book entry and does not alter Sales tab figures.
+- Cashier can access only Transportation, Expense from cash, Inventory and Dispatch. Cashier cannot access Sales or Bills and rent. These restrictions are enforced by the backend.
+
+
+LATEST UI REFINEMENTS
+- Expense from cash now uses one shared selected date: changing the date at the top updates the opening-cash field, and selecting a day in the daily closing table updates the same date selector.
+- Transportation now shows a monthly summary for Gulshan and Dhanmondi below the entry list.
+- Foodpanda commission control has been removed from Bills and Rent; the central setting remains under Admin > Business settings because Foodpanda profitability calculations still use it.
+- Service worker cache version bumped to refresh the updated app shell.

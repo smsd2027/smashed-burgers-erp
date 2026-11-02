@@ -27,7 +27,7 @@ MAX_IMG = 6 * 1024 * 1024
 ROLES = {'admin': 'admin', 'smashed': 'visitor', 'staff': 'limited', 'cashier': 'cashier'}
 # Legacy staff remains restricted. Cashier may fully manage only Expenses, Inventory and Dispatch.
 LIM_WRITE = {'dp': list, 'ex': dict, 'cx': list, 'ci': list}
-CASHIER_WRITE = {'dp': list, 'rc': list, 'items': list, 'ex': dict, 'ec': list, 'cx': list, 'ci': list}
+CASHIER_WRITE = {'dp': list, 'rc': list, 'items': list, 'cx': list, 'ci': list, 'tr': list, 'cs': list, 'co': dict}
 CASHIER_SALT = 'cea2a4d13ce327dc7073ddacba94b056'
 CASHIER_HASH = 'ab0b498c738b6fdd89dd78a1bf9110d70ef5f8fa0267224fde1e067cb909cdbe'
 # first-time passwords, stored only as salted hashes. Change them inside the ERP.
@@ -105,6 +105,22 @@ def valid_cashier_payload(data):
         for field in ('c', 'u'):
             if field in item and (not isinstance(item[field], str) or len(item[field]) > 120):
                 return False
+    for entry in data.get('tr', []):
+        if not isinstance(entry, dict) or not all(isinstance(entry.get(k), str) for k in ('d', 'k', 'p', 'v')):
+            return False
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', entry['d']) or entry['v'] not in ('Car', 'CNG', 'Bike', 'Rickshaw'):
+            return False
+        if not entry['p'].strip() or len(entry['p']) > 300 or not isinstance(entry.get('a'), (int, float)) or entry['a'] <= 0:
+            return False
+    for entry in data.get('cs', []) + data.get('ci', []) + data.get('cx', []):
+        if not isinstance(entry, dict) or not isinstance(entry.get('d'), str) or not isinstance(entry.get('k'), str):
+            return False
+        amount = entry.get('a')
+        if not isinstance(amount, (int, float)) or amount < 0:
+            return False
+    for key, amount in data.get('co', {}).items():
+        if not isinstance(key, str) or not isinstance(amount, (int, float)) or amount < 0:
+            return False
     return True
 
 
@@ -290,10 +306,9 @@ def cashier_view(data_str):
         'items': [{'n': i.get('n'), 'c': i.get('c'), 'u': i.get('u'), 'p': 0} for i in d.get('items', []) if isinstance(i, dict)],
         'rc': d.get('rc', []), 'dp': d.get('dp', []),
         'vd': [{'n': v.get('n')} for v in d.get('vd', []) if isinstance(v, dict)],
-        'br': d.get('br', []), 'units': [u for u in d.get('units', []) if isinstance(u, str)],
-        'menu': [{'id': m.get('id'), 'n': m.get('n'), 'c': m.get('c'), 'p': m.get('p', 0)} for m in d.get('menu', []) if isinstance(m, dict)],
-        'ds': d.get('ds', {}), 'sales': {},
-        'rv': [], 'st': [], 'pr': {}, 'py': [], 'ex': d.get('ex', {}), 'ec': d.get('ec', []), 'cx': d.get('cx', []), 'ci': d.get('ci', []),
+        'br': d.get('br', []), 'units': [], 'menu': [],
+        'ds': {}, 'sales': {},
+        'rv': [], 'st': [], 'pr': {}, 'py': [], 'cx': d.get('cx', []), 'ci': d.get('ci', []), 'tr': d.get('tr', []), 'cs': d.get('cs', []), 'co': d.get('co', {}),
         'al': {}, 'nid': d.get('nid', 1), 'mid': d.get('mid', 0), 'fp': d.get('fp', 0)
     }, separators=(',', ':'), ensure_ascii=False)
 
@@ -529,8 +544,8 @@ class H(BaseHTTPRequestHandler):
                     cur = None
                 if not isinstance(cur, dict):
                     return self.send(400, '{"error":"no data yet"}')
-                # Only accept the three permitted modules. Preserve all protected fields.
-                for k in ('dp', 'rc', 'ex', 'ec', 'cx', 'ci'):
+                # Accept only Dispatch, Inventory, Transportation and cash-book fields. Preserve protected data.
+                for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'co'):
                     if k in new:
                         cur[k] = new[k]
                 if 'items' in new:
