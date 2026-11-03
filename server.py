@@ -25,9 +25,9 @@ IMG_DIR = os.path.join(DATA_DIR, 'images')
 ID_RE = re.compile(r'^[A-Za-z0-9_-]{6,48}$')
 MAX_IMG = 6 * 1024 * 1024
 ROLES = {'admin': 'admin', 'smashed': 'visitor', 'staff': 'limited', 'cashier': 'cashier'}
-# Legacy staff remains restricted. Cashier can add operational records; saved expense/wastage rows are append-only.
+# Legacy staff remains restricted. Cashier may fully manage only Expenses, Inventory and Dispatch.
 LIM_WRITE = {'dp': list, 'ex': dict, 'cx': list, 'ci': list}
-CASHIER_WRITE = {'dp': list, 'rc': list, 'items': list, 'cx': list, 'ci': list, 'tr': list, 'cs': list, 'co': dict, 'wg': list}
+CASHIER_WRITE = {'dp': list, 'rc': list, 'items': list, 'cx': list, 'ci': list, 'tr': list, 'cs': list, 'co': dict}
 CASHIER_SALT = 'cea2a4d13ce327dc7073ddacba94b056'
 CASHIER_HASH = 'ab0b498c738b6fdd89dd78a1bf9110d70ef5f8fa0267224fde1e067cb909cdbe'
 # first-time passwords, stored only as salted hashes. Change them inside the ERP.
@@ -80,38 +80,19 @@ def validate_tree(value, depth=0, budget=None):
     return False
 
 
-def _valid_date(value):
-    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
-        return False
-    try:
-        time.strptime(value, '%Y-%m-%d')
-        return True
-    except ValueError:
-        return False
-
-
-def _valid_amount(value, allow_zero=True):
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and value == value and abs(value) != float('inf')
-            and value <= 1000000000000 and (value >= 0 if allow_zero else value > 0))
-
-
-def _append_only(old, incoming):
-    """True when a submitted list preserves every saved row byte-for-byte and only appends."""
-    return (isinstance(old, list) and isinstance(incoming, list)
-            and len(incoming) >= len(old) and incoming[:len(old)] == old)
-
-
 def valid_cashier_payload(data):
-    """Validate cashier submissions before merging their restricted operational fields."""
+    """Cashier may submit only the three permitted modules and their supporting fields."""
     allowed = set(CASHIER_WRITE)
-    if not isinstance(data, dict) or not set(data).issubset(allowed) or not validate_tree(data):
+    if not isinstance(data, dict) or not set(data).issubset(allowed):
+        return False
+    if not validate_tree(data):
         return False
     for key, typ in CASHIER_WRITE.items():
         if key in data and not isinstance(data[key], typ):
             return False
+    items = data.get('items', [])
     seen = set()
-    for item in data.get('items', []):
+    for item in items:
         if not isinstance(item, dict):
             return False
         name = item.get('n')
@@ -124,51 +105,21 @@ def valid_cashier_payload(data):
         for field in ('c', 'u'):
             if field in item and (not isinstance(item[field], str) or len(item[field]) > 120):
                 return False
-        if 'p' in item and not _valid_amount(item['p']):
-            return False
-    for entry in data.get('dp', []):
-        if (not isinstance(entry, dict) or not _valid_date(entry.get('d'))
-                or not all(isinstance(entry.get(k), str) and entry[k].strip() for k in ('b', 'i'))
-                or not _valid_amount(entry.get('q', 0))):
-            return False
-        for field in ('u', 'a'):
-            if field in entry and not _valid_amount(entry[field]):
-                return False
-    for entry in data.get('rc', []):
-        if (not isinstance(entry, dict) or not _valid_date(entry.get('d'))
-                or not all(isinstance(entry.get(k), str) and entry[k].strip() for k in ('i', 'v'))
-                or not _valid_amount(entry.get('q'), False)
-                or not _valid_amount(entry.get('t'), False)):
-            return False
-        if 'p' in entry and not _valid_amount(entry['p']):
-            return False
-    for entry in data.get('wg', []):
-        if (not isinstance(entry, dict) or not _valid_date(entry.get('d'))
-                or not isinstance(entry.get('i'), str) or not entry['i'].strip()
-                or not _valid_amount(entry.get('q'), False)
-                or not _valid_amount(entry.get('a'))
-                or not all(isinstance(entry.get(k), str) and entry[k].strip() for k in ('from', 'to'))):
-            return False
-        if entry.get('im') and not ID_RE.fullmatch(str(entry['im'])):
-            return False
     for entry in data.get('tr', []):
-        if (not isinstance(entry, dict) or not _valid_date(entry.get('d'))
-                or not all(isinstance(entry.get(k), str) for k in ('k', 'p', 'v'))):
+        if not isinstance(entry, dict) or not all(isinstance(entry.get(k), str) for k in ('d', 'k', 'p', 'v')):
             return False
-        if entry['v'] not in ('Car', 'CNG', 'Bike', 'Rickshaw') or not entry['p'].strip() or len(entry['p']) > 300:
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', entry['d']) or entry['v'] not in ('Car', 'CNG', 'Bike', 'Rickshaw'):
             return False
-        if not _valid_amount(entry.get('a'), False):
+        if not entry['p'].strip() or len(entry['p']) > 300 or not isinstance(entry.get('a'), (int, float)) or entry['a'] <= 0:
             return False
-    for key in ('cs', 'ci', 'cx'):
-        for entry in data.get(key, []):
-            if (not isinstance(entry, dict) or not _valid_date(entry.get('d'))
-                    or not isinstance(entry.get('k'), str) or not entry['k'].strip()
-                    or not _valid_amount(entry.get('a'))):
-                return False
-            if key == 'cx' and (not isinstance(entry.get('p'), str) or not entry['p'].strip()):
-                return False
+    for entry in data.get('cs', []) + data.get('ci', []) + data.get('cx', []):
+        if not isinstance(entry, dict) or not isinstance(entry.get('d'), str) or not isinstance(entry.get('k'), str):
+            return False
+        amount = entry.get('a')
+        if not isinstance(amount, (int, float)) or amount < 0:
+            return False
     for key, amount in data.get('co', {}).items():
-        if not isinstance(key, str) or '|' not in key or not _valid_date(key.rsplit('|', 1)[-1]) or not _valid_amount(amount):
+        if not isinstance(key, str) or not isinstance(amount, (int, float)) or amount < 0:
             return False
     return True
 
@@ -290,16 +241,17 @@ def pbk(pw, salt):
 
 
 def check_password(name, pw):
-    """Verify the four-digit account PIN without exposing PINs to the browser."""
-    pins = {
-        'admin': '7cd49ea8bdcb0219b2bf72ff074eb518b0019a691c980922b715ee94a52d2fe8',
-        'smashed': '7b208a33471413e1de35fc9dc30ecac8d9335dfe87478244f7e4b4223cd98975',
-        'cashier': 'd100aff313b455ce85d5aaab4619e93f478885166fdfe4611ba4e8447685ced2',
-    }
-    if name not in pins or not re.fullmatch(r'\d{4}', pw):
+    if name not in ROLES:
         return False
-    salt = bytes.fromhex('9f6c2a7d1e4b8a30c5d7e9f102938475')
-    return hmac.compare_digest(pins[name], pbk(pw, salt))
+    rec = USERS.get(name)
+    if name == 'cashier' and not rec:
+        return hmac.compare_digest(CASHIER_HASH, pbk(pw, bytes.fromhex(CASHIER_SALT)))
+    if rec:
+        return hmac.compare_digest(rec['hash'], pbk(pw, bytes.fromhex(rec['salt'])))
+    if name not in DEFAULTS:      # the staff account only exists once the admin has created its password
+        return False
+    legacy = hashlib.sha256(('sb-erp|%s|%s' % (name, pw)).encode('utf-8')).hexdigest()
+    return hmac.compare_digest(DEFAULTS[name], legacy)
 
 
 def init_env_passwords():
@@ -319,8 +271,7 @@ def init_env_passwords():
 
 
 def weak():
-    # Accounts now use server-verified PINs; legacy password records are not used for login.
-    return False
+    return any(n not in USERS for n in ('admin', 'smashed'))
 
 
 def limited_view(data_str):
@@ -351,25 +302,14 @@ def cashier_view(data_str):
         return 'null'
     if not isinstance(d, dict):
         return 'null'
-    item_values = {i.get('n'): i.get('p', 0) for i in d.get('items', []) if isinstance(i, dict)}
-    dispatch_rows = []
-    for row in d.get('dp', []):
-        if isinstance(row, dict):
-            item = dict(row)
-            unit_value = float(item.get('u', item_values.get(item.get('i'), 0)) or 0)
-            if item.get('u') is None:
-                item['u'] = unit_value
-            if item.get('a') is None:
-                item['a'] = float(item.get('q', 0) or 0) * unit_value
-            dispatch_rows.append(item)
     return json.dumps({
         'items': [{'n': i.get('n'), 'c': i.get('c'), 'u': i.get('u'), 'p': 0} for i in d.get('items', []) if isinstance(i, dict)],
-        'rc': d.get('rc', []), 'dp': dispatch_rows,
+        'rc': d.get('rc', []), 'dp': d.get('dp', []),
         'vd': [{'n': v.get('n')} for v in d.get('vd', []) if isinstance(v, dict)],
         'br': d.get('br', []), 'units': [], 'menu': [],
         'ds': {}, 'sales': {},
         'rv': [], 'st': [], 'pr': {}, 'py': [], 'cx': d.get('cx', []), 'ci': d.get('ci', []), 'tr': d.get('tr', []), 'cs': d.get('cs', []), 'co': d.get('co', {}),
-        'al': {}, 'nid': d.get('nid', 1), 'mid': d.get('mid', 0), 'fp': d.get('fp', 0), 'wg': d.get('wg', [])
+        'al': {}, 'nid': d.get('nid', 1), 'mid': d.get('mid', 0), 'fp': d.get('fp', 0)
     }, separators=(',', ':'), ensure_ascii=False)
 
 
@@ -515,7 +455,7 @@ class H(BaseHTTPRequestHandler):
         if u.path.startswith('/api/img/'):
             if not role:
                 return self.send(401, '{"error":"login"}')
-            if role == 'limited':
+            if role in ('limited', 'cashier'):
                 return self.send(403, '{"error":"not allowed"}')
             iid = u.path[len('/api/img/'):]
             if not ID_RE.match(iid):
@@ -577,7 +517,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({'token': tok, 'role': ROLES[name]}))
             self.fail(ip)
             time.sleep(0.4)
-            return self.send(401, '{"error":"Wrong account or PIN."}')
+            return self.send(401, '{"error":"Wrong ID or password."}')
         tok, role = self.session()
         if u.path == '/api/logout':
             TOKENS.pop(tok, None)
@@ -604,74 +544,22 @@ class H(BaseHTTPRequestHandler):
                     cur = None
                 if not isinstance(cur, dict):
                     return self.send(400, '{"error":"no data yet"}')
-                # Cashier may add expense/transport/wastage records but cannot edit or delete
-                # records already saved. This is enforced server-side, not just in the UI.
-                # Validate branch/item/vendor references against the current business setup.
-                branches = set(x for x in cur.get('br', []) if isinstance(x, str))
-                item_names = set(x.get('n') for x in cur.get('items', []) if isinstance(x, dict) and isinstance(x.get('n'), str))
-                item_names.update(x.get('n') for x in new.get('items', []) if isinstance(x, dict) and isinstance(x.get('n'), str))
-                vendor_names = set(x.get('n') for x in cur.get('vd', []) if isinstance(x, dict) and isinstance(x.get('n'), str))
-                for row in new.get('dp', []):
-                    if row.get('b') not in branches or row.get('i') not in item_names:
-                        return self.send(400, '{"error":"Dispatch must reference an existing branch and inventory item."}')
-                for row in new.get('rc', []):
-                    if row.get('i') not in item_names or row.get('v') not in vendor_names:
-                        return self.send(400, '{"error":"Stock-in must reference an existing inventory item and vendor."}')
-                for key in ('cx', 'ci', 'cs'):
-                    if any(row.get('k') not in branches for row in new.get(key, [])):
-                        return self.send(400, '{"error":"Cash-book entries must reference an existing branch."}')
-                for row in new.get('tr', []):
-                    if (row.get('to') or row.get('k')) not in branches:
-                        return self.send(400, '{"error":"Transportation must reference an existing destination branch."}')
-                for key in new.get('co', {}):
-                    if key.rsplit('|', 1)[0] not in branches:
-                        return self.send(400, '{"error":"Opening cash must reference an existing branch."}')
-                # Cashier can add operational records, but cannot rewrite historical rows.
-                # This is enforced here as well as in the interface to prevent direct API edits.
-                for key in ('cx', 'tr', 'wg', 'ci', 'cs', 'rc'):
-                    if key in new and not _append_only(cur.get(key, []), new[key]):
-                        return self.send(403, '{"error":"Only Admin can edit or delete saved expense, cash-book, stock-in and wastage records."}')
-                if 'co' in new:
-                    old_opening = cur.get('co', {})
-                    incoming_opening = new['co']
-                    if not isinstance(old_opening, dict) or not isinstance(incoming_opening, dict) or any(
-                        key not in incoming_opening or incoming_opening[key] != value
-                        for key, value in old_opening.items()
-                    ):
-                        return self.send(403, '{"error":"Only Admin can change or delete a saved opening-cash value."}')
-                # Accept only Dispatch, Inventory, Transportation, cash-book and new wastage fields.
-                for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'co', 'wg'):
+                # Accept only Dispatch, Inventory, Transportation and cash-book fields. Preserve protected data.
+                for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'co'):
                     if k in new:
                         cur[k] = new[k]
                 if 'items' in new:
                     old_by_name = {str(x.get('n', '')).casefold(): x for x in cur.get('items', []) if isinstance(x, dict)}
                     clean = []
-                    incoming_names = set()
                     for item in new['items']:
                         if not isinstance(item, dict) or not str(item.get('n', '')).strip():
                             return self.send(400, '{"error":"invalid inventory item"}')
                         name = str(item.get('n', '')).strip()
-                        norm = name.casefold()
-                        incoming_names.add(norm)
-                        old = old_by_name.get(norm, {})
-                        if old and (name != str(old.get('n', ''))
-                                    or str(item.get('c', old.get('c', ''))) != str(old.get('c', ''))
-                                    or str(item.get('u', old.get('u', ''))) != str(old.get('u', ''))):
-                            return self.send(403, '{"error":"Only Admin can edit existing inventory item details."}')
-                        # A cashier may set the unit value on the first stock receipt only.
-                        old_price = old.get('p', 0)
-                        new_price = old_price
-                        if not old_price:
-                            receipts = [row for row in cur.get('rc', []) if isinstance(row, dict) and row.get('i') == name]
-                            received_qty = sum(float(row.get('q') or 0) for row in receipts)
-                            received_value = sum(float(row.get('t') if row.get('t') is not None else (float(row.get('q') or 0) * float(row.get('p') or 0))) for row in receipts)
-                            new_price = received_value / received_qty if received_qty > 0 else item.get('p', 0)
-                        if not _valid_amount(new_price):
-                            return self.send(400, '{"error":"invalid inventory unit value"}')
+                        old = old_by_name.get(name.casefold(), (cur.get('items', [])[len(clean)] if len(clean) < len(cur.get('items', [])) and isinstance(cur.get('items', [])[len(clean)], dict) else {}))
+                        # Inventory item names/category/unit are editable; menu/cost fields remain Admin-only.
                         clean.append({'n': name, 'c': str(item.get('c', old.get('c', ''))),
-                                      'u': str(item.get('u', old.get('u', ''))), 'p': new_price})
-                    if not set(old_by_name).issubset(incoming_names):
-                        return self.send(403, '{"error":"Only Admin can remove existing inventory items."}')
+                                      'u': str(item.get('u', old.get('u', ''))),
+                                      'p': old.get('p', 0)})
                     cur['items'] = clean
                 old_v, old_data = STATE['v'], STATE['data']
                 STATE['v'] = old_v + 1
@@ -720,10 +608,8 @@ class H(BaseHTTPRequestHandler):
                     print('ERROR: ERP data save failed: %s' % e)
                     return self.send(503, '{"error":"Could not save to the database. No changes were committed; please try again."}')
                 return self.send(200, '{"v":%d}' % STATE['v'])
-        if role not in ('admin', 'cashier'):
+        if role != 'admin':
             return self.send(403, '{"error":"view only"}')
-        if u.path == '/api/img-del' and role != 'admin':
-            return self.send(403, '{"error":"admin only"}')
         if u.path in ('/api/img', '/api/img-del'):
             iid = (parse_qs(u.query).get('id') or [''])[0]
             if not ID_RE.match(iid):
