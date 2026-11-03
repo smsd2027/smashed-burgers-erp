@@ -34,21 +34,19 @@ C. RENDER (about 10 minutes)
 5. When the service is created, open its Environment page and add these values:
    SUPABASE_URL = your Supabase Project URL
    SUPABASE_SERVICE_ROLE_KEY = your Supabase legacy service_role key
-   ERP_ADMIN_PASSWORD = choose a new password (at least 8 characters)
-   ERP_VISITOR_PASSWORD = choose a different viewer password (at least 8 characters)
+   ERP_ADMIN_PASSWORD and ERP_VISITOR_PASSWORD may remain set as legacy deployment variables; account sign-in now uses the PINs below.
 6. Save changes. Render will redeploy. Wait until status is Live.
 7. Open the URL ending in .onrender.com.
 
 D. FIRST LOGIN AND DATA
-1. Sign in with ID: Admin and the ERP_ADMIN_PASSWORD you set.
+1. Select Admin and enter PIN: 1715.
 2. The first Admin login creates the ERP's initial data if the database is empty.
 3. In the ERP, use Restore backup and choose your existing ERP backup JSON file.
 4. Check sales, menu, expenses, inventory, vendors, salary and review screenshots.
 5. Download a fresh backup after checking everything.
 
 VIEWER LOGIN
-ID: Smashed
-Password: the ERP_VISITOR_PASSWORD you set.
+Select Smashed and enter PIN: 5050.
 
 IMPORTANT LIMITATIONS
 - Render Free sleeps after 15 minutes without requests; the first request may take around 1 minute.
@@ -56,9 +54,12 @@ IMPORTANT LIMITATIONS
 - Keep regular copies using the ERP's Download backup button.
 - Do not delete your old ERP or original backup until the new cloud ERP is fully verified.
 
+CASHIER LOGIN
+Select Cashier and enter PIN: 1010.
+
 TROUBLESHOOTING
 - If Render says Supabase is not configured, check the four Environment variables above.
-- If login fails, check that both ERP passwords were saved in Render Environment and wait for redeploy.
+- If PIN login fails, verify the selected account and PIN, then check that the Render service is Live. Legacy ERP_ADMIN_PASSWORD and ERP_VISITOR_PASSWORD variables remain in the deployment template for compatibility; the three current account PINs are verified by the application server.
 - If SQL fails, make sure you ran the entire supabase-setup.sql in the correct Supabase project.
 
 ------------------------------------------------------------
@@ -73,22 +74,22 @@ WHAT'S NEW IN THIS VERSION (no new environment variables needed)
    (menu items without cost, inventory items without price, negative stock, open reviews,
    vendor dues), business settings (Foodpanda %, add a branch, expense lines),
    accounts and access, record counts, backup/restore and the full PDF report.
-4. CASHIER ACCOUNT (Inventory and Dispatch only)
-   - Sign-in ID: Cashier
-   - Initial password is provided to the owner separately; change it from Admin > Change passwords after rollout.
-   - The server sends this account only inventory/dispatch data and vendor names needed
-     for stock receiving. It cannot access sales, expenses, salaries, vendor balances,
-     menu costs, reviews or Admin settings. Server-side write restrictions are enforced.
+4. CASHIER ACCOUNT (operational access)
+   - Sign-in ID: Cashier; use the four-digit PIN listed in the Account Sign-in section.
+   - The server sends this account only the inventory, dispatch, wastage and cash-book
+     information needed for daily operations. It cannot access sales, salary, vendor
+     balances, menu costs, reviews or Admin settings. Server-side write restrictions apply.
 5. Legacy Staff login, if previously configured, remains restricted to Dispatch and Expenses.
 6. Unchanged: Supabase storage, Render settings, environment variable names, database
    table, PWA manifest, service worker and icons.
 
 
-LATEST ACCESS-CONTROL UPDATE (2026-11-01)
-- Cashier is view-only for Inventory and Dispatch. Only Admin can create or change records.
-- Only the Admin session can change account passwords; the backend enforces this even if someone calls the API directly.
-- Cashier cannot open password-management controls.
-- Service worker cache version was increased so installed phones fetch the updated app shell.
+LATEST ACCESS-CONTROL UPDATE (2026-11-03)
+- Cashier can add operational records in Inventory, Dispatch, Wastage and cash-book sections.
+- Historical expense, cash-book, transportation, stock-in and wastage rows are protected from Cashier edits/deletions by the backend.
+- Admin retains historical correction/deletion permissions.
+- PIN sign-in is server-verified; the browser does not contain the account PINs.
+- Service worker cache version is increased so installed phones fetch the updated app shell.
 
 LATEST MAINTENANCE UPDATE
 - Backend now validates nested JSON size/depth and rejects malformed or unsupported
@@ -126,3 +127,28 @@ LATEST UI REFINEMENTS
 - Transportation now shows a monthly summary for Gulshan and Dhanmondi below the entry list.
 - Foodpanda commission control has been removed from Bills and Rent; the central setting remains under Admin > Business settings because Foodpanda profitability calculations still use it.
 - Service worker cache version bumped to refresh the updated app shell.
+
+LATEST BUG-FIX PASS (2026-11-03)
+- Cashier sign-in now requires the server; the old local-only fallback no longer
+  contains or accepts PINs in browser JavaScript.
+- Cashier can add cash-book sales/inflows and opening cash, but saved cash-book,
+  cash-expense, transport, stock-in and wastage history is append-only for Cashier.
+  Admin retains the ability to correct or remove historical entries.
+- Cashier cannot delete stock-in history or edit/delete saved cash sales, cash-in
+  records, or an existing opening-cash value from the interface.
+- Backend validates dates, amounts and required fields for Cashier dispatch,
+  stock-in, transport, cash-book and wastage submissions before saving.
+- Existing inventory items cannot be removed or have their category/unit changed
+  by Cashier; adding new inventory items remains supported.
+- Dashboard profit-and-loss now includes cash expenses and transportation in the
+  expense calculation, allocated across each branch's channels consistently with
+  salary and bills/rent.
+- Stock-in display safely handles legacy rows with a zero quantity.
+- Service worker cache version bumped to refresh the updated app shell.
+
+ACCOUNT SIGN-IN
+- Admin PIN: 1715
+- Smashed (view-only) PIN: 5050
+- Cashier PIN: 1010
+- The PINs are verified by the ERP server. Keep the Render deployment private to
+  the intended staff and do not share PINs outside the business.

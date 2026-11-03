@@ -1,4 +1,4 @@
-const CACHE = 'smashed-erp-shell-v13';
+const CACHE = 'smashed-erp-shell-v16';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
