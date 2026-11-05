@@ -34,21 +34,19 @@ C. RENDER (about 10 minutes)
 5. When the service is created, open its Environment page and add these values:
    SUPABASE_URL = your Supabase Project URL
    SUPABASE_SERVICE_ROLE_KEY = your Supabase legacy service_role key
-   ERP_ADMIN_PASSWORD = choose a new password (at least 8 characters)
-   ERP_VISITOR_PASSWORD = choose a different viewer password (at least 8 characters)
-6. Save changes. Render will redeploy. Wait until status is Live.
+   Keep the existing ERP_ADMIN_PASSWORD and ERP_VISITOR_PASSWORD variables if they are already configured. This update does not require new variables; the one-time PIN migration below initializes the three requested accounts.
+6. Save changes only if you changed anything. Wait until status is Live.
 7. Open the URL ending in .onrender.com.
 
 D. FIRST LOGIN AND DATA
-1. Sign in with ID: Admin and the ERP_ADMIN_PASSWORD you set.
+1. After deploying the 4 November update, sign in by selecting Admin and entering the initial PIN 1715.
 2. The first Admin login creates the ERP's initial data if the database is empty.
 3. In the ERP, use Restore backup and choose your existing ERP backup JSON file.
 4. Check sales, menu, expenses, inventory, vendors, salary and review screenshots.
 5. Download a fresh backup after checking everything.
 
 VIEWER LOGIN
-ID: Smashed
-Password: the ERP_VISITOR_PASSWORD you set.
+Select Smashed and enter the initial PIN 5050.
 
 IMPORTANT LIMITATIONS
 - Render Free sleeps after 15 minutes without requests; the first request may take around 1 minute.
@@ -73,12 +71,10 @@ WHAT'S NEW IN THIS VERSION (no new environment variables needed)
    (menu items without cost, inventory items without price, negative stock, open reviews,
    vendor dues), business settings (Foodpanda %, add a branch, expense lines),
    accounts and access, record counts, backup/restore and the full PDF report.
-4. CASHIER ACCOUNT (Inventory and Dispatch only)
-   - Sign-in ID: Cashier
-   - Initial password is provided to the owner separately; change it from Admin > Change passwords after rollout.
-   - The server sends this account only inventory/dispatch data and vendor names needed
-     for stock receiving. It cannot access sales, expenses, salaries, vendor balances,
-     menu costs, reviews or Admin settings. Server-side write restrictions are enforced.
+4. CASHIER ACCOUNT
+   - Select Cashier and enter the initial PIN 1010.
+   - Cashier can access Transportation, Expense from cash, Inventory and Dispatch.
+   - Cashier cannot access Sales, Bills and rent, salaries, vendor balances, menu costs, reviews or Admin settings. Server-side write restrictions are enforced.
 5. Legacy Staff login, if previously configured, remains restricted to Dispatch and Expenses.
 6. Unchanged: Supabase storage, Render settings, environment variable names, database
    table, PWA manifest, service worker and icons.
@@ -126,3 +122,29 @@ LATEST UI REFINEMENTS
 - Transportation now shows a monthly summary for Gulshan and Dhanmondi below the entry list.
 - Foodpanda commission control has been removed from Bills and Rent; the central setting remains under Admin > Business settings because Foodpanda profitability calculations still use it.
 - Service worker cache version bumped to refresh the updated app shell.
+
+
+LATEST FEATURE UPDATE — 4 NOVEMBER 2026
+--------------------------------------
+This update adds the requested navigation, dispatch and wastage workflows.
+
+LOGIN
+- Choose an account first, then enter its 4-digit PIN.
+- Admin: 1715
+- Smashed (read-only visitor): 5050
+- Cashier: 1010
+- These are initial rollout PINs. Admin can change them in the ERP using Change account PIN.
+- The first server start after this update performs a one-time credential migration and stores salted PIN hashes in the existing users field. No database schema change is required.
+- Keep the existing Render environment variable names and values; this update does not require new environment variables. The initial PIN migration takes precedence for the three listed accounts.
+
+NAVIGATION AND WORKFLOWS
+- Cashier logo returns to Expenses > Overview. Clicking Expenses always opens Overview.
+- Dispatch has Overview and Daily Dispatches. The monthly Overview groups dispatched items by branch and shows quantities, estimated purchase-cost amounts and totals.
+- Wastage is Admin-only and records date, item, quantity, amount, From, To and a required photo proof. Photo thumbnails open a larger preview. Wastage photos are included in downloadable backups.
+- Cashier can add new cash expenses, cash inflows, cash sales and transportation entries, but existing preview rows are read-only. The backend also enforces append-only access for existing expense/cash records.
+
+DEPLOYMENT
+- Replace the complete project files in the existing GitHub repository and let Render deploy.
+- Do not rerun SQL or change the existing Supabase project, table, service-role key, Render environment variable names, manifest, app icons or installation settings.
+- After deployment, sign in as Admin with 1715, verify the existing data, and immediately change the initial Admin PIN. Then test Cashier (1010) and Smashed (5050).
+- Download a backup before and after rollout. Keep the previous deployment/backup until all three accounts and the new tabs have been checked.

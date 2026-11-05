@@ -1,0 +1,52 @@
+SMASHED BURGERS ERP - UPDATE NOTES
+Date: 4 November 2026
+
+ACCOUNT ACCESS
+- Existing roles, login names, role permissions, and account data visibility were intentionally left unchanged.
+- The Visitor (Smashed) account remains an owner account with its existing full read access.
+- Admin, Staff, and Cashier access scopes were not changed.
+
+BUG FIXES AND HARDENING
+- Cash-book opening balances now carry forward from the previous saved closing balance across month boundaries, unless an explicit opening balance is entered for that day.
+- Monthly sales and expense adjustments now support an explicit zero. Clearing the field restores automatic calculation.
+- Inventory stock valuation now uses weighted-average purchase cost from stock receipts up to the selected date; saved item cost remains the fallback when no receipts exist.
+- Stock receiving and dispatch forms reject zero or negative quantities; stock receiving also rejects non-positive total values.
+- Cashier stock-receiving and dispatch payloads receive stricter validation, including real calendar dates, positive quantities, and bounded values. The existing Cashier write scope is unchanged. The existing source already merged Cashier stock-receiving records correctly; the earlier audit note suggesting otherwise was mistaken.
+- Staff write payloads receive the same general nested-data size/depth validation before merge.
+- Gzip request handling now rejects oversized, truncated, and malformed compressed payloads.
+- Supabase ERP writes use a version-checked update to detect concurrent writes from multiple server instances instead of silently overwriting newer state.
+- Supabase password updates now modify only the credentials column, avoiding an upsert of potentially stale ERP data.
+- HTTP request logging is enabled without logging request bodies or authorization headers.
+- JPEG uploads must have complete JPEG start/end markers as a basic integrity check.
+- Service-worker cache version was advanced and optional missing shell assets no longer prevent installation.
+
+DEPLOYMENT
+- No Supabase schema migration is required.
+- No new Render environment variables are required.
+- Keep the existing Render and Supabase secrets configured exactly as before.
+- Upload the complete contents of this ZIP to the existing Git repository and deploy normally.
+
+TESTS RUN
+- Python backend syntax compilation: passed.
+- JavaScript syntax checks for both inline scripts and service worker: passed.
+- Backend payload validation and Supabase write-safety unit tests (9 tests): passed.
+- Frontend calculation checks: passed for month-to-month cash carry, weighted-average cost, explicit zero overrides, and clearing back to automatic calculations.
+- Local HTTP smoke test: passed for health endpoint, Admin login, data save/read, Visitor login, and Visitor full read access.
+
+KNOWN REMAINING LIMITS
+- The ERP still stores most operational data in one JSONB state row. Splitting this into relational tables would require a planned, backed-up migration and was not attempted in this bug-fix pass.
+- Image upload checks verify JPEG boundary markers and size, but do not fully decode/re-encode image contents.
+
+NOT LIVE-VERIFIED
+- This package was not connected to the live Render deployment or production Supabase project during testing.
+- Real production response times, live concurrent-user behaviour, and restore from the production backup still require deployment-side verification.
+
+
+REQUESTED ERP WORKFLOW UPDATE
+- Replaced ID/password login screen with account selection followed by a 4-digit PIN. One-time migration sets initial PINs: Admin 1715, Smashed 5050, Cashier 1010; PINs are stored as salted hashes. Admin can change account PINs.
+- Cashier logo now opens Expenses > Overview. Clicking Expenses resets to Overview.
+- Cashier expense/cash/transportation preview rows are read-only in the interface, with server-side append-only enforcement for existing rows. New records can still be added.
+- Dispatch now has Overview and Daily Dispatches. Monthly Overview groups item quantities and estimated purchase-cost amounts by branch, with totals.
+- Added Admin-only Wastage tab with date, item, quantity, amount, From, To and required photo proof; thumbnails open a larger preview. Wastage proof photos are included in downloadable backups.
+- Service-worker cache version bumped to v15.
+- Existing Supabase schema, Render environment variable names, PWA manifest and icons are retained.
