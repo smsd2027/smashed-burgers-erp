@@ -80,16 +80,6 @@ def validate_tree(value, depth=0, budget=None):
     return False
 
 
-def valid_date(value):
-    if not isinstance(value, str) or not re.match(r'^\d{4}-\d{2}-\d{2}$', value):
-        return False
-    try:
-        time.strptime(value, '%Y-%m-%d')
-        return True
-    except ValueError:
-        return False
-
-
 def valid_cashier_payload(data):
     """Cashier may submit only the three permitted modules and their supporting fields."""
     allowed = set(CASHIER_WRITE)
@@ -115,65 +105,21 @@ def valid_cashier_payload(data):
         for field in ('c', 'u'):
             if field in item and (not isinstance(item[field], str) or len(item[field]) > 120):
                 return False
-    for key in ('rc', 'dp'):
-        for entry in data.get(key, []):
-            if not isinstance(entry, dict):
-                return False
-            date = entry.get('d')
-            item = entry.get('i')
-            qty = entry.get('q')
-            if not valid_date(date):
-                return False
-            if not isinstance(item, str) or not item.strip() or len(item) > 160:
-                return False
-            if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not 0 < qty < 1e9:
-                return False
-            if key == 'rc':
-                if 't' in entry:
-                    total = entry.get('t')
-                else:
-                    unit_price = entry.get('p')
-                    if isinstance(unit_price, bool) or not isinstance(unit_price, (int, float)) or not 0 < unit_price < 1e9:
-                        return False
-                    total = unit_price * qty
-                if isinstance(total, bool) or not isinstance(total, (int, float)) or not 0 < total < 1e12:
-                    return False
-                vendor = entry.get('v', '')
-                if not isinstance(vendor, str) or len(vendor) > 200:
-                    return False
-            else:
-                branch = entry.get('b', '')
-                if not isinstance(branch, str) or len(branch) > 160:
-                    return False
     for entry in data.get('tr', []):
         if not isinstance(entry, dict) or not all(isinstance(entry.get(k), str) for k in ('d', 'k', 'p', 'v')):
             return False
-        if not valid_date(entry['d']) or entry['v'] not in ('Car', 'CNG', 'Bike', 'Rickshaw'):
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', entry['d']) or entry['v'] not in ('Car', 'CNG', 'Bike', 'Rickshaw'):
             return False
-        if not entry['p'].strip() or len(entry['p']) > 300 or isinstance(entry.get('a'), bool) or not isinstance(entry.get('a'), (int, float)) or not 0 < entry['a'] < 1e12:
+        if not entry['p'].strip() or len(entry['p']) > 300 or not isinstance(entry.get('a'), (int, float)) or entry['a'] <= 0:
             return False
     for entry in data.get('cs', []) + data.get('ci', []) + data.get('cx', []):
-        if not isinstance(entry, dict) or not valid_date(entry.get('d')) or not isinstance(entry.get('k'), str):
+        if not isinstance(entry, dict) or not isinstance(entry.get('d'), str) or not isinstance(entry.get('k'), str):
             return False
         amount = entry.get('a')
-        if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not 0 <= amount < 1e12:
+        if not isinstance(amount, (int, float)) or amount < 0:
             return False
     for key, amount in data.get('co', {}).items():
-        if not isinstance(key, str) or isinstance(amount, bool) or not isinstance(amount, (int, float)) or not 0 <= amount < 1e12:
-            return False
-    return True
-
-
-def cashier_expense_rows_unchanged(current, submitted):
-    """Cashier may append cash/expense rows, but cannot mutate or remove saved rows."""
-    if not isinstance(current, dict) or not isinstance(submitted, dict):
-        return False
-    for key in ('cx', 'ci', 'tr', 'cs'):
-        old_rows = current.get(key, [])
-        new_rows = submitted.get(key, old_rows)
-        if not isinstance(old_rows, list) or not isinstance(new_rows, list):
-            return False
-        if new_rows[:len(old_rows)] != old_rows:
+        if not isinstance(key, str) or not isinstance(amount, (int, float)) or amount < 0:
             return False
     return True
 
@@ -186,8 +132,6 @@ def sb_request(path, method='GET', payload=None, raw=None, content_type='applica
     headers = {'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY}
     if path.startswith('/rest/v1/') and method == 'POST':
         headers['Prefer'] = 'resolution=merge-duplicates,return=minimal'
-    elif path.startswith('/rest/v1/') and method == 'PATCH':
-        headers['Prefer'] = 'return=representation'
     body = raw
     if payload is not None:
         body = json.dumps(payload, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
@@ -260,15 +204,7 @@ def load():
 
 def persist():
     if SB_ENABLED:
-        # Atomic compare-and-swap: prevent two Render instances from silently
-        # overwriting each other's latest ERP state. STATE['v'] was incremented
-        # by the caller, so the database must still contain the previous version.
-        expected = STATE['v'] - 1
-        row = {'v': STATE['v'], 'data': json.loads(STATE['data']), 'users': USERS}
-        updated = sb_request('/rest/v1/erp_state?id=eq.main&v=eq.%d' % expected,
-                             method='PATCH', payload=row) or []
-        if not updated:
-            raise RuntimeError('The ERP was updated by another server session. Refresh and try again.')
+        sb_save_state()
         return
     text = '{"v":%d,"data":%s}' % (STATE['v'], STATE['data'])
     tmp = DATA + '.tmp'
@@ -292,10 +228,7 @@ def persist():
 
 def save_users():
     if SB_ENABLED:
-        # Update only credentials; never upsert a stale copy of the ERP data.
-        updated = sb_request('/rest/v1/erp_state?id=eq.main', method='PATCH', payload={'users': USERS}) or []
-        if not updated:
-            raise RuntimeError('Could not update account credentials in Supabase.')
+        sb_save_state()
         return
     tmp = USERS_FILE + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
@@ -308,28 +241,33 @@ def pbk(pw, salt):
 
 
 def check_password(name, pw):
-    if name not in ('admin', 'smashed', 'cashier', 'staff'):
+    if name not in ROLES:
         return False
     rec = USERS.get(name)
-    if rec and isinstance(rec, dict) and rec.get('salt') and rec.get('hash'):
-        return hmac.compare_digest(rec['hash'], pbk(pw, bytes.fromhex(rec['salt'])))
-    if name == 'cashier':
+    if name == 'cashier' and not rec:
         return hmac.compare_digest(CASHIER_HASH, pbk(pw, bytes.fromhex(CASHIER_SALT)))
-    if name not in DEFAULTS:
+    if rec:
+        return hmac.compare_digest(rec['hash'], pbk(pw, bytes.fromhex(rec['salt'])))
+    if name not in DEFAULTS:      # the staff account only exists once the admin has created its password
         return False
     legacy = hashlib.sha256(('sb-erp|%s|%s' % (name, pw)).encode('utf-8')).hexdigest()
     return hmac.compare_digest(DEFAULTS[name], legacy)
 
 
 def init_env_passwords():
-    """One-time account PIN migration. Existing deployment environment variable names remain valid for legacy setups; the requested PINs are stored as salted hashes."""
-    if USERS.get('_auth_version') == 'pin-v1':
-        return
-    for name, pin in (('admin', '1715'), ('smashed', '5050'), ('cashier', '1010')):
-        salt = secrets.token_bytes(16)
-        USERS[name] = {'salt': salt.hex(), 'hash': pbk(pin, salt)}
-    USERS['_auth_version'] = 'pin-v1'
-    save_users()
+    """Cloud setup: the owner's passwords come from the host settings, so the first-time ones never go live."""
+    changed = False
+    for name, var in (('admin', 'ERP_ADMIN_PASSWORD'), ('smashed', 'ERP_VISITOR_PASSWORD')):
+        pw = os.environ.get(var, '')
+        if pw and name not in USERS:
+            if len(pw) < 8:
+                print('ERROR: %s must have at least 8 characters.' % var)
+                raise SystemExit(1)
+            salt = secrets.token_bytes(16)
+            USERS[name] = {'salt': salt.hex(), 'hash': pbk(pw, salt)}
+            changed = True
+    if changed:
+        save_users()
 
 
 def weak():
@@ -409,14 +347,8 @@ class H(BaseHTTPRequestHandler):
     server_version = 'ERP'
     timeout = 30
 
-    def log_message(self, fmt, *args):
-        # Keep operational access/error logs without ever logging request bodies or
-        # authorization headers (which may contain credentials/session tokens).
-        try:
-            message = fmt % args
-            print('[http] %s' % message[:500])
-        except Exception:
-            pass
+    def log_message(self, *a):
+        pass
 
     def ip(self):
         peer = self.client_address[0]
@@ -466,14 +398,11 @@ class H(BaseHTTPRequestHandler):
             return None
         raw = self.rfile.read(n)
         try:
-            if self.headers.get('Content-Encoding', '').lower() == 'gzip':
+            if self.headers.get('Content-Encoding', '') == 'gzip':
                 d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-                raw = d.decompress(raw, MAX_BODY + 1)
-                # Reject gzip bombs, truncated streams and concatenated/trailing data.
-                if len(raw) > MAX_BODY or d.unconsumed_tail or not d.eof or d.unused_data:
+                raw = d.decompress(raw, MAX_BODY)
+                if d.unconsumed_tail:
                     return None
-            if len(raw) > MAX_BODY:
-                return None
             return json.loads(raw.decode('utf-8'))
         except Exception:
             return None
@@ -615,9 +544,6 @@ class H(BaseHTTPRequestHandler):
                     cur = None
                 if not isinstance(cur, dict):
                     return self.send(400, '{"error":"no data yet"}')
-                # Expense/cash previews are append-only for Cashier: existing records cannot be edited or deleted.
-                if not cashier_expense_rows_unchanged(cur, new):
-                    return self.send(403, '{"error":"Existing expense and cash records are read-only for Cashier. Add a new record instead."}')
                 # Accept only Dispatch, Inventory, Transportation and cash-book fields. Preserve protected data.
                 for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'co'):
                     if k in new:
@@ -656,8 +582,6 @@ class H(BaseHTTPRequestHandler):
                 return self.send(400, '{"error":"bad version"}')
             new = j['data']
             allowed = LIM_WRITE
-            if not validate_tree(new):
-                return self.send(400, '{"error":"Invalid or oversized staff data. No changes were saved."}')
             for k, typ in allowed.items():
                 if k in new and not isinstance(new[k], typ):
                     return self.send(400, '{"error":"bad data"}')
@@ -707,8 +631,8 @@ class H(BaseHTTPRequestHandler):
             if n <= 0 or n > MAX_IMG:
                 return self.send(413, '{"error":"picture too large"}')
             raw = self.rfile.read(n)
-            if len(raw) < 4 or raw[:2] != b'\xff\xd8' or raw[-2:] != b'\xff\xd9':
-                return self.send(400, '{"error":"Invalid JPEG image. Please upload a complete JPEG file."}')
+            if raw[:2] != b'\xff\xd8':
+                return self.send(400, '{"error":"jpeg only"}')
             if SB_ENABLED:
                 headers = {'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
                            'Content-Type': 'image/jpeg', 'x-upsert': 'true'}
@@ -736,11 +660,13 @@ class H(BaseHTTPRequestHandler):
                 return self.send(429, json.dumps({'error': msg}))
             if not check_password('admin', cur):
                 self.fail(ip)
-                return self.send(403, '{"error":"Your current admin PIN is not correct."}')
+                return self.send(403, '{"error":"Your current admin password is not correct."}')
             if who not in ('admin', 'smashed', 'staff', 'cashier'):
                 return self.send(400, '{"error":"Unknown account."}')
-            if not re.fullmatch(r'\d{4}', new):
-                return self.send(400, '{"error":"PIN must contain exactly 4 digits."}')
+            if len(new) < 8:
+                return self.send(400, '{"error":"Use at least 8 characters."}')
+            if new.lower() in ('sabbirnj1715', 'smashed2026', 'password', '12345678', who):
+                return self.send(400, '{"error":"That password is too easy to guess."}')
             salt = secrets.token_bytes(16)
             USERS[who] = {'salt': salt.hex(), 'hash': pbk(new, salt)}
             save_users()

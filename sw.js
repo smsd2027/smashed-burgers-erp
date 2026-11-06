@@ -1,10 +1,7 @@
-const CACHE = 'smashed-erp-shell-v15';
+const CACHE = 'smashed-erp-shell-v13';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(async cache => {
-    // A missing optional icon must not prevent the ERP shell from installing.
-    for (const asset of SHELL) { try { await cache.add(asset); } catch (_) {} }
-  }));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
   self.skipWaiting();
 });
 self.addEventListener('activate', event => {
