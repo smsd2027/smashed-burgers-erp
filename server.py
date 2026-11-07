@@ -27,7 +27,7 @@ MAX_IMG = 6 * 1024 * 1024
 ROLES = {'admin': 'admin', 'smashed': 'visitor', 'staff': 'limited', 'cashier': 'cashier'}
 # Legacy staff remains restricted. Cashier may fully manage only Expenses, Inventory and Dispatch.
 LIM_WRITE = {'dp': list, 'ex': dict, 'cx': list, 'ci': list}
-CASHIER_WRITE = {'dp': list, 'rc': list, 'items': list, 'cx': list, 'ci': list, 'tr': list, 'cs': list, 'co': dict}
+CASHIER_WRITE = {'wa': list, 'dp': list, 'rc': list, 'items': list, 'cx': list, 'ci': list, 'tr': list, 'cs': list, 'co': dict}
 CASHIER_SALT = 'cea2a4d13ce327dc7073ddacba94b056'
 CASHIER_HASH = 'ab0b498c738b6fdd89dd78a1bf9110d70ef5f8fa0267224fde1e067cb909cdbe'
 # first-time passwords, stored only as salted hashes. Change them inside the ERP.
@@ -118,8 +118,43 @@ def valid_cashier_payload(data):
         amount = entry.get('a')
         if not isinstance(amount, (int, float)) or amount < 0:
             return False
+    for key in ('dp', 'rc', 'wa'):
+        for e in data.get(key, []):
+            if not isinstance(e, dict):
+                return False
+    for e in data.get('wa', []):
+        im = e.get('im', '')
+        if (not isinstance(e.get('id'), str) or not isinstance(e.get('i'), str) or not e['i'].strip() or len(e['i']) > 160
+                or not isinstance(e.get('q'), (int, float)) or e['q'] <= 0
+                or not isinstance(e.get('a'), (int, float)) or e['a'] < 0
+                or not isinstance(im, str) or (im and not (ID_RE.match(im) and im.startswith('wst')))):
+            return False
+    for key in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'wa'):
+        for e in data.get(key, []):
+            if not isinstance(e.get('d'), str) or not re.match(r'^\d{4}-\d{2}-\d{2}$', e['d']):
+                return False
     for key, amount in data.get('co', {}).items():
         if not isinstance(key, str) or not isinstance(amount, (int, float)) or amount < 0:
+            return False
+    return True
+
+
+def cashier_append_only(cur, new):
+    """Cashier may add records but never change or remove saved ones (enforced here, not in the browser)."""
+    for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'wa'):
+        if k in new:
+            old = cur.get(k, [])
+            if not isinstance(old, list) or new[k][:len(old)] != old:
+                return False
+    if 'co' in new:
+        old = cur.get('co', {})
+        if not isinstance(old, dict) or any(k not in new['co'] or new['co'][k] != v for k, v in old.items()):
+            return False
+    if 'items' in new:
+        def proj(L):
+            return [(str(i.get('n', '')).strip(), str(i.get('c', '')), str(i.get('u', ''))) for i in L if isinstance(i, dict)]
+        old = proj(cur.get('items', []))
+        if proj(new['items'])[:len(old)] != old:
             return False
     return True
 
@@ -156,7 +191,7 @@ def sb_request(path, method='GET', payload=None, raw=None, content_type='applica
 
 
 def sb_save_state():
-    row = {'id': 'main', 'v': STATE['v'], 'data': json.loads(STATE['data']), 'users': USERS}
+    row = {'id': 'main', 'v': STATE['v'], 'data': json.loads(STATE['data']) or {}, 'users': USERS}
     sb_request('/rest/v1/erp_state?on_conflict=id', method='POST', payload=row)
 
 
@@ -167,7 +202,7 @@ def load():
         if rows:
             row = rows[0]
             STATE['v'] = int(row.get('v') or 0)
-            STATE['data'] = json.dumps(row.get('data'), separators=(',', ':'), ensure_ascii=False)
+            STATE['data'] = json.dumps(row.get('data') or None, separators=(',', ':'), ensure_ascii=False)
             USERS = row.get('users') or {}
         else:
             # Create the shared state row the first time the service starts.
@@ -254,6 +289,46 @@ def check_password(name, pw):
     return hmac.compare_digest(DEFAULTS[name], legacy)
 
 
+ACCT = {}   # account -> [wrong tries, locked_until, lock level]
+
+
+def acct_wait(name):
+    f = ACCT.get(name)
+    return max(0, int(f[1] - time.time())) if f else 0
+
+
+def acct_fail(name):
+    f = ACCT.setdefault(name, [0, 0, 0])
+    f[0] += 1
+    if f[0] >= 5:                      # 5 wrong tries: lock this account, longer each time (10 min up to 6 h)
+        f[0], f[1], f[2] = 0, time.time() + min(600 * 2 ** f[2], 21600), f[2] + 1
+
+
+def check_login(name, secret):
+    """4-digit PIN (preferred) or the long password (recovery)."""
+    if name not in ROLES:
+        return False
+    rec = USERS.get('pin:' + name)
+    if rec and re.fullmatch(r'\d{4}', secret) and hmac.compare_digest(rec['hash'], pbk(secret, bytes.fromhex(rec['salt']))):
+        return True
+    return check_password(name, secret)
+
+
+def init_env_pins():
+    changed = False
+    for name, var in (('admin', 'ERP_ADMIN_PIN'), ('smashed', 'ERP_VISITOR_PIN'), ('cashier', 'ERP_CASHIER_PIN')):
+        pin = os.environ.get(var, '')
+        if pin and 'pin:' + name not in USERS:
+            if not re.fullmatch(r'\d{4}', pin):
+                print('ERROR: %s must be exactly 4 digits.' % var)
+                raise SystemExit(1)
+            salt = secrets.token_bytes(16)
+            USERS['pin:' + name] = {'salt': salt.hex(), 'hash': pbk(pin, salt)}
+            changed = True
+    if changed:
+        save_users()
+
+
 def init_env_passwords():
     """Cloud setup: the owner's passwords come from the host settings, so the first-time ones never go live."""
     changed = False
@@ -304,7 +379,7 @@ def cashier_view(data_str):
         return 'null'
     return json.dumps({
         'items': [{'n': i.get('n'), 'c': i.get('c'), 'u': i.get('u'), 'p': 0} for i in d.get('items', []) if isinstance(i, dict)],
-        'rc': d.get('rc', []), 'dp': d.get('dp', []),
+        'rc': d.get('rc', []), 'dp': d.get('dp', []), 'wa': d.get('wa', []),
         'vd': [{'n': v.get('n')} for v in d.get('vd', []) if isinstance(v, dict)],
         'br': d.get('br', []), 'units': [], 'menu': [],
         'ds': {}, 'sales': {},
@@ -455,9 +530,9 @@ class H(BaseHTTPRequestHandler):
         if u.path.startswith('/api/img/'):
             if not role:
                 return self.send(401, '{"error":"login"}')
-            if role in ('limited', 'cashier'):
-                return self.send(403, '{"error":"not allowed"}')
             iid = u.path[len('/api/img/'):]
+            if role == 'limited' or (role == 'cashier' and not iid.startswith('wst')):
+                return self.send(403, '{"error":"not allowed"}')
             if not ID_RE.match(iid):
                 return self.send(404, '{"error":"not found"}')
             try:
@@ -508,7 +583,11 @@ class H(BaseHTTPRequestHandler):
             j = self.body_json(4096) or {}
             name = str(j.get('u', '')).strip().lower()
             pw = str(j.get('p', ''))
-            if check_password(name, pw):
+            wait = acct_wait(name) if name in ROLES else 0
+            if wait:
+                return self.send(429, json.dumps({'error': 'Too many wrong PINs. This account is locked for %d more minute(s).' % (wait // 60 + 1)}))
+            if check_login(name, pw):
+                ACCT.pop(name, None)
                 FAILS.pop(ip, None)
                 tok = secrets.token_urlsafe(24)
                 TOKENS[tok] = [ROLES[name], time.time() + TOKEN_LIFE]
@@ -516,8 +595,10 @@ class H(BaseHTTPRequestHandler):
                     TOKENS.pop(k, None)
                 return self.send(200, json.dumps({'token': tok, 'role': ROLES[name]}))
             self.fail(ip)
+            if name in ROLES:
+                acct_fail(name)
             time.sleep(0.4)
-            return self.send(401, '{"error":"Wrong ID or password."}')
+            return self.send(401, '{"error":"Wrong PIN or password."}')
         tok, role = self.session()
         if u.path == '/api/logout':
             TOKENS.pop(tok, None)
@@ -544,8 +625,10 @@ class H(BaseHTTPRequestHandler):
                     cur = None
                 if not isinstance(cur, dict):
                     return self.send(400, '{"error":"no data yet"}')
+                if not cashier_append_only(cur, new):
+                    return self.send(403, '{"error":"Cashier can add records but cannot change or delete saved ones."}')
                 # Accept only Dispatch, Inventory, Transportation and cash-book fields. Preserve protected data.
-                for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'co'):
+                for k in ('dp', 'rc', 'cx', 'ci', 'tr', 'cs', 'co', 'wa'):
                     if k in new:
                         cur[k] = new[k]
                 if 'items' in new:
@@ -608,13 +691,15 @@ class H(BaseHTTPRequestHandler):
                     print('ERROR: ERP data save failed: %s' % e)
                     return self.send(503, '{"error":"Could not save to the database. No changes were committed; please try again."}')
                 return self.send(200, '{"v":%d}' % STATE['v'])
-        if role != 'admin':
+        if role != 'admin' and not (role == 'cashier' and u.path == '/api/img'):
             return self.send(403, '{"error":"view only"}')
         if u.path in ('/api/img', '/api/img-del'):
             iid = (parse_qs(u.query).get('id') or [''])[0]
             if not ID_RE.match(iid):
                 return self.send(400, '{"error":"bad id"}')
             path = os.path.join(IMG_DIR, iid + '.jpg')
+            if role == 'cashier' and not iid.startswith('wst'):
+                return self.send(403, '{"error":"not allowed"}')
             if u.path == '/api/img-del':
                 try:
                     if SB_ENABLED:
@@ -633,9 +718,11 @@ class H(BaseHTTPRequestHandler):
             raw = self.rfile.read(n)
             if raw[:2] != b'\xff\xd8':
                 return self.send(400, '{"error":"jpeg only"}')
+            if role == 'cashier' and not SB_ENABLED and os.path.exists(path):
+                return self.send(409, '{"error":"picture already saved"}')
             if SB_ENABLED:
                 headers = {'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
-                           'Content-Type': 'image/jpeg', 'x-upsert': 'true'}
+                           'Content-Type': 'image/jpeg', 'x-upsert': 'false' if role == 'cashier' else 'true'}
                 req = Request(SB_URL + '/storage/v1/object/erp-images/' + quote(iid + '.jpg'),
                               data=raw, headers=headers, method='POST')
                 try:
@@ -658,17 +745,18 @@ class H(BaseHTTPRequestHandler):
             msg = self.throttle(ip)
             if msg:
                 return self.send(429, json.dumps({'error': msg}))
-            if not check_password('admin', cur):
+            if not check_login('admin', cur):
                 self.fail(ip)
                 return self.send(403, '{"error":"Your current admin password is not correct."}')
             if who not in ('admin', 'smashed', 'staff', 'cashier'):
                 return self.send(400, '{"error":"Unknown account."}')
-            if len(new) < 8:
-                return self.send(400, '{"error":"Use at least 8 characters."}')
+            is_pin = bool(re.fullmatch(r'\d{4}', new))
+            if not is_pin and len(new) < 8:
+                return self.send(400, '{"error":"Use a 4-digit PIN or at least 8 characters."}')
             if new.lower() in ('sabbirnj1715', 'smashed2026', 'password', '12345678', who):
                 return self.send(400, '{"error":"That password is too easy to guess."}')
             salt = secrets.token_bytes(16)
-            USERS[who] = {'salt': salt.hex(), 'hash': pbk(new, salt)}
+            USERS[('pin:' + who) if is_pin else who] = {'salt': salt.hex(), 'hash': pbk(new, salt)}
             save_users()
             for k in [k for k, v in TOKENS.items() if v[0] == ROLES[who]]:
                 TOKENS.pop(k, None)
@@ -705,6 +793,7 @@ if __name__ == '__main__':
     os.makedirs(DATA_DIR, exist_ok=True)
     load()
     init_env_passwords()
+    init_env_pins()
     if TRUST_PROXY and weak():
         print('ERROR: this server is set up for the internet, but the passwords are not set.')
         print('Set ERP_ADMIN_PASSWORD and ERP_VISITOR_PASSWORD (8 or more characters) and start again.')

@@ -9,11 +9,10 @@ create table if not exists public.erp_state (
 alter table public.erp_state enable row level security;
 revoke all on public.erp_state from anon, authenticated;
 
--- Auto-bump version and timestamp on every update
+-- Stamp the update time only. The server owns the version number (v).
 create or replace function public.erp_state_touch() returns trigger
 language plpgsql as $$
 begin
-  new.v := old.v + 1;
   new.updated_at := now();
   return new;
 end $$;
