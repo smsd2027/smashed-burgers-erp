@@ -1,4 +1,4 @@
-const CACHE = 'smashed-erp-shell-v14';
+const CACHE = 'smashed-erp-shell-v15';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 const NETWORK_TIMEOUT_MS = 4000;
 
@@ -33,6 +33,7 @@ self.addEventListener('fetch', event => {
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
+    const cached = await cache.match(key);
     const network = fetch(req);
 
     // Update the cache in the background, kept alive via waitUntil
@@ -42,14 +43,17 @@ self.addEventListener('fetch', event => {
         .catch(() => {})
     );
 
+    // First visit (nothing cached): wait for the server however long it takes (cold start).
+    if (!cached) {
+      try { return await network; }
+      catch { return new Response('Offline. Please check your connection and reload.', { status: 503, headers: { 'Content-Type': 'text/plain' } }); }
+    }
+    // Cached copy exists: use the network if it answers quickly and properly, otherwise the cached copy.
     try {
-      return await Promise.race([
-        network,
-        new Promise((_, reject) => setTimeout(reject, NETWORK_TIMEOUT_MS)),
-      ]);
+      const res = await Promise.race([network, new Promise((_, reject) => setTimeout(reject, NETWORK_TIMEOUT_MS))]);
+      return res.ok ? res : cached;
     } catch {
-      const hit = await cache.match(key);
-      return hit || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      return cached;
     }
   })());
 });

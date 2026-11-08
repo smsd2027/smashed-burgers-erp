@@ -57,27 +57,71 @@ def read_json(path):
         return json.load(f)
 
 
-def validate_tree(value, depth=0, budget=None):
+SMALL_LIM = (400000, 50000, 5000, 20000)          # nodes, list length, dict size, string length (Cashier / staff)
+ADMIN_LIM = (10000000, 500000, 100000, 200000)    # Admin owns all the data, so years of history must fit
+
+
+def validate_tree(value, depth=0, budget=None, lim=SMALL_LIM):
     """Reject malformed/oversized JSON values before they reach shared ERP state."""
     if budget is None:
         budget = [0]
     budget[0] += 1
-    if budget[0] > 100000 or depth > 12:
+    if budget[0] > lim[0] or depth > 12:
         return False
     if value is None or isinstance(value, (bool, int)):
         return True
     if isinstance(value, float):
         return value == value and abs(value) != float('inf')
     if isinstance(value, str):
-        return len(value) <= 20000
+        return len(value) <= lim[3]
     if isinstance(value, list):
-        return len(value) <= 20000 and all(validate_tree(x, depth + 1, budget) for x in value)
+        return len(value) <= lim[1] and all(validate_tree(x, depth + 1, budget, lim) for x in value)
     if isinstance(value, dict):
-        return len(value) <= 5000 and all(
-            isinstance(k, str) and len(k) <= 200 and validate_tree(v, depth + 1, budget)
+        return len(value) <= lim[2] and all(
+            isinstance(k, str) and len(k) <= 200 and validate_tree(v, depth + 1, budget, lim)
             for k, v in value.items()
         )
     return False
+
+
+DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def num(x, positive=False):
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and (x > 0 if positive else x >= 0)
+
+
+def check_rows(data):
+    """Shape check for the rows Cashier and staff accounts may add."""
+    for e in data.get('dp', []):
+        if (not isinstance(e, dict) or not isinstance(e.get('d'), str) or not DATE_RE.match(e['d'])
+                or not isinstance(e.get('b'), str) or not isinstance(e.get('i'), str) or not num(e.get('q'))):
+            return False
+    for e in data.get('rc', []):
+        if (not isinstance(e, dict) or not isinstance(e.get('d'), str) or not DATE_RE.match(e['d'])
+                or not isinstance(e.get('i'), str) or not isinstance(e.get('v', ''), str)
+                or not num(e.get('q'), True) or not num(e.get('t', 0)) or not num(e.get('p', 0))):
+            return False
+    for key in ('cx', 'ci', 'cs'):
+        for e in data.get(key, []):
+            if (not isinstance(e, dict) or not isinstance(e.get('d'), str) or not DATE_RE.match(e['d'])
+                    or not isinstance(e.get('k'), str) or not num(e.get('a'))):
+                return False
+    return True
+
+
+def ex_keeps(old, new):
+    """Bills and rent: staff may fill empty cells but not change an amount already saved."""
+    if not isinstance(old, dict):
+        return True
+    if not isinstance(new, dict):
+        return False
+    for m, bs in old.items():
+        for b, cs in (bs.items() if isinstance(bs, dict) else []):
+            for c, v in (cs.items() if isinstance(cs, dict) else []):
+                if v and ((new.get(m) or {}).get(b) or {}).get(c) != v:
+                    return False
+    return True
 
 
 def valid_cashier_payload(data):
@@ -85,7 +129,7 @@ def valid_cashier_payload(data):
     allowed = set(CASHIER_WRITE)
     if not isinstance(data, dict) or not set(data).issubset(allowed):
         return False
-    if not validate_tree(data):
+    if not validate_tree(data) or not check_rows(data):
         return False
     for key, typ in CASHIER_WRITE.items():
         if key in data and not isinstance(data[key], typ):
@@ -124,7 +168,7 @@ def valid_cashier_payload(data):
                 return False
     for e in data.get('wa', []):
         im = e.get('im', '')
-        if (not isinstance(e.get('id'), str) or not isinstance(e.get('i'), str) or not e['i'].strip() or len(e['i']) > 160
+        if (not isinstance(e.get('id'), str) or not re.match(r'^[A-Za-z0-9_-]{1,64}$', e['id']) or not isinstance(e.get('i'), str) or not e['i'].strip() or len(e['i']) > 160
                 or not isinstance(e.get('q'), (int, float)) or e['q'] <= 0
                 or not isinstance(e.get('a'), (int, float)) or e['a'] < 0
                 or not isinstance(im, str) or (im and not (ID_RE.match(im) and im.startswith('wst')))):
@@ -237,9 +281,24 @@ def load():
     raise SystemExit(1)
 
 
+def sb_snapshot():
+    now = time.time()
+    if now - STATE['snap'] < 21600:
+        return
+    STATE['snap'] = now
+    try:
+        sb_request('/rest/v1/erp_snapshots', method='POST', payload={'v': STATE['v'], 'data': json.loads(STATE['data']) or {}})
+        old = sb_request('/rest/v1/erp_snapshots?select=id&order=id.desc&offset=28&limit=1000') or []
+        if old:
+            sb_request('/rest/v1/erp_snapshots?id=in.(%s)' % ','.join(str(x['id']) for x in old), method='DELETE')
+    except Exception as e:
+        print('WARNING: snapshot not saved (run the erp_snapshots part of supabase-setup.sql): %s' % str(e)[:160])
+
+
 def persist():
     if SB_ENABLED:
         sb_save_state()
+        sb_snapshot()
         return
     text = '{"v":%d,"data":%s}' % (STATE['v'], STATE['data'])
     tmp = DATA + '.tmp'
@@ -668,6 +727,8 @@ class H(BaseHTTPRequestHandler):
             for k, typ in allowed.items():
                 if k in new and not isinstance(new[k], typ):
                     return self.send(400, '{"error":"bad data"}')
+            if not set(new).issubset(set(LIM_WRITE)) or not validate_tree(new) or not check_rows(new):
+                return self.send(400, '{"error":"Invalid data."}')
             with LOCK:
                 if base != STATE['v']:
                     view = cashier_view(STATE['data']) if role == 'cashier' else limited_view(STATE['data'])
@@ -678,6 +739,8 @@ class H(BaseHTTPRequestHandler):
                     cur = None
                 if not isinstance(cur, dict):
                     return self.send(400, '{"error":"no data yet"}')
+                if not cashier_append_only(cur, new) or ('ex' in new and not ex_keeps(cur.get('ex', {}), new['ex'])):
+                    return self.send(403, '{"error":"This account can add records but cannot change or delete saved ones."}')
                 for k in LIM_WRITE:
                     if k in new: cur[k] = new[k]
                 old_v, old_data = STATE['v'], STATE['data']
@@ -764,7 +827,7 @@ class H(BaseHTTPRequestHandler):
         if u.path == '/api/data':
             j = self.body_json()
             if (not isinstance(j, dict) or not isinstance(j.get('data'), dict)
-                    or 'items' not in j['data'] or not validate_tree(j['data'])):
+                    or 'items' not in j['data'] or not validate_tree(j['data'], lim=ADMIN_LIM)):
                 return self.send(400, '{"error":"Invalid or oversized ERP data. No changes were saved."}')
             try:
                 base = int(j.get('base', -1))

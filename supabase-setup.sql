@@ -29,3 +29,13 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('erp-images', 'erp-images', false, 6291456, array['image/jpeg'])
 on conflict (id) do update set public = false, file_size_limit = 6291456,
   allowed_mime_types = array['image/jpeg'];
+
+-- History: the server saves a snapshot every 6 hours (keeps the last 28) so a bad save can be rolled back.
+create table if not exists public.erp_snapshots (
+  id bigint generated always as identity primary key,
+  taken_at timestamptz not null default now(),
+  v bigint not null,
+  data jsonb not null
+);
+alter table public.erp_snapshots enable row level security;
+revoke all on public.erp_snapshots from anon, authenticated;
