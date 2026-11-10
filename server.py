@@ -338,6 +338,8 @@ def check_password(name, pw):
     if name not in ROLES:
         return False
     rec = USERS.get(name)
+    if not rec and ('pin:' + name) in USERS:     # once a PIN exists the built-in default password stops working
+        return False
     if name == 'cashier' and not rec:
         return hmac.compare_digest(CASHIER_HASH, pbk(pw, bytes.fromhex(CASHIER_SALT)))
     if rec:
@@ -405,7 +407,7 @@ def init_env_passwords():
 
 
 def weak():
-    return any(n not in USERS for n in ('admin', 'smashed'))
+    return any(n not in USERS and ('pin:' + n) not in USERS for n in ('admin', 'smashed'))
 
 
 def limited_view(data_str):
