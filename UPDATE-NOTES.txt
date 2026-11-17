@@ -1,0 +1,31 @@
+Smashed Burgers ERP – Sales & Login Update
+
+Changes:
+- Monthly sales imports now support two explicit modes:
+  1) Replace monthly report: removes all existing sales entries for the selected branch/channel and month (including legacy daily rows), then saves the new report as one monthly record.
+  2) Add to existing report: combines the imported quantities with the existing monthly totals and saves one consolidated monthly record.
+- Admin can select historical months and edit saved item quantities and unit prices; totals and reports recalculate.
+- Admin can also rename menu items in the Menu tab; historical sales continue to follow the same item record.
+- Account picker now uses circular profile-style avatars, with a crown-themed Admin avatar, chef-themed Cashier avatar, and the existing Smashed Burgers logo for the Smashed account. Access descriptions have been removed.
+- Added the PWA icon image files required by the existing manifest and service worker, and incremented the service-worker cache version.
+
+Not changed:
+- Dashboard logic and presentation.
+- Dispatch logic and presentation.
+- Existing backend routes, Supabase schema, stored data, and environment-variable names.
+
+Deployment:
+- Replace the existing project files with the files in this ZIP through your normal GitHub/Render deployment workflow.
+- Do not rerun the Supabase setup SQL for this update.
+- Keep your existing Render environment variables and Supabase database.
+- Back up your Supabase data before deploying, as with any ERP update.
+
+Checks performed:
+- Both inline JavaScript blocks pass Node syntax validation.
+- Python backend passes compilation.
+- Monthly replace/add behaviour was tested with representative legacy daily entries and multiple branches.
+- Dashboard and both dispatch functions were compared against the uploaded source and are unchanged.
+- PWA icon files exist at the sizes referenced by the manifest and service worker.
+
+Not live-tested:
+- No connection was made to your production Render service or Supabase database.
