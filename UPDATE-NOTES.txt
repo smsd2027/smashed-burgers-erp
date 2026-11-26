@@ -30,13 +30,44 @@ Checks performed:
 Not live-tested:
 - No connection was made to your production Render service or Supabase database.
 
-2026-11-26 P&L AND INTERFACE POLISH
-- Restored a consistent Smashed Burgers charcoal-and-yellow login treatment; removed the brown profile-panel styling that did not match the main ERP brand.
-- Reworked the Dashboard P&L presentation with clearer KPI cards, a more readable report header, inline Foodpanda commission-rate labels beside branch names, and a responsive horizontally scrollable report table.
-- Removed the standalone Commission % table column; the actual commission percentage now appears beside each Foodpanda branch/channel label.
-- Corrected Gulshan and Dhanmondi Bills & rent allocation: the full branch overhead is charged to Dine In and zero is allocated to Foodpanda.
-- P&L sales now display net Dine In sales after adjustments, while Foodpanda profit continues to use the actual paycheck received. Pending Foodpanda paychecks remain excluded from totals and profit.
-- Added a clear P&L calculation note and a print action; Dashboard printing remains landscape.
-- Service-worker cache advanced to v17 so clients fetch the updated interface.
-- Backend routes, Supabase schema, credentials, stored operational data, and role permissions were not changed.
-- Validation: inline JavaScript syntax, Python backend compilation, and ZIP integrity passed. Live Render/Supabase and in-browser visual testing were not performed.
+Smashed Burgers ERP – P&L & Foodpanda Settlement Update (2026-11-26)
+
+Changes:
+- Added a dedicated monthly Foodpanda settlements panel to the Dashboard/P&L. Admin enters the actual net payout received for each Foodpanda channel and month, then saves all branch payouts together.
+- The P&L calculates the difference between recorded Foodpanda sales and the entered payout as effective platform deductions, and calculates the effective deduction percentage beside the Foodpanda branch/channel name.
+- Removed the standalone commission-percentage column to keep the P&L easier to scan.
+- Fixed Gulshan and Dhanmondi rent and bills allocation: 100% is charged to the corresponding Dine In channel and 0% to Foodpanda.
+- Foodpanda channels with a missing payout remain visibly pending. Their known food and other costs are still included in total expenses; the overall profit is labelled provisional until all payouts are entered.
+- Improved validation so payout entries cannot be negative or non-numeric. Blank means the payout has not been received/entered yet; zero is a valid saved payout.
+- Restyled the account picker to use the Smashed Burgers charcoal-and-yellow brand palette instead of the brown/orange override.
+- Bumped the service-worker cache to v17 so clients fetch the updated application shell.
+
+Payout entry workflow:
+1. Open Dashboard.
+2. Select the month in the month selector.
+3. In “Foodpanda monthly settlements”, enter the net payout actually received for each Foodpanda branch for that month.
+4. Select “Save monthly payouts”.
+5. Review the P&L below. Effective deductions and percentages calculate automatically.
+
+Financial treatment:
+- Dine In paycheck/revenue equals its recorded net sales.
+- Foodpanda paycheck/revenue equals the actual payout entered in the settlement panel.
+- Effective Foodpanda deductions = recorded Foodpanda sales minus actual payout. This may include platform commission and other settlement adjustments, so it should not be interpreted as commission alone if the platform statement contains other deductions.
+- Gulshan and Dhanmondi rent/bills and salary are assigned entirely to Dine In.
+- Wastage remains displayed separately and is not included in operating profit, consistent with the existing P&L treatment.
+
+Deployment:
+- Back up the live ERP before deployment.
+- Replace the project files using the existing GitHub/Render workflow.
+- Keep existing Render environment variables and Supabase configuration. Do not rerun Supabase setup SQL.
+- After deployment, refresh the ERP. If an older PWA shell remains cached, close/reopen the installed app or reload after the service worker updates.
+
+Checks performed:
+- Inline JavaScript syntax validation with Node.js.
+- Python backend compilation.
+- ZIP integrity check.
+- Focused calculation test for Foodpanda payout reconciliation and Dine In-only Gulshan/Dhanmondi overhead allocation.
+
+Not live-tested:
+- No connection was made to the production Render service or Supabase database. Actual live data and browser workflow still need confirmation in the deployed environment.
+- Fixed a historical-sales edge case: an explicit zero sales override is now respected instead of silently falling back to item-level sales. Admin can use “Use item sales” to clear the override and return to calculated totals.
