@@ -43,20 +43,10 @@ NOT LIVE-VERIFIED
 
 
 REQUESTED ERP WORKFLOW UPDATE
-- Replaced ID/password login screen with account selection followed by a 4-digit PIN. initial PINs were given separately; PINs are stored as salted hashes. Admin can change account PINs.
+- Replaced ID/password login screen with account selection followed by a 4-digit PIN. One-time migration set the initial PINs (given separately, not written here); PINs are stored as salted hashes. Admin can change account PINs.
 - Cashier logo now opens Expenses > Overview. Clicking Expenses resets to Overview.
 - Cashier expense/cash/transportation preview rows are read-only in the interface, with server-side append-only enforcement for existing rows. New records can still be added.
 - Dispatch now has Overview and Daily Dispatches. Monthly Overview groups item quantities and estimated purchase-cost amounts by branch, with totals.
 - Added Admin-only Wastage tab with date, item, quantity, amount, From, To and required photo proof; thumbnails open a larger preview. Wastage proof photos are included in downloadable backups.
-- Service-worker cache version bumped to v16.
+- Service-worker cache version bumped to v15.
 - Existing Supabase schema, Render environment variable names, PWA manifest and icons are retained.
-
-
-2026-11-26 UPDATE
-- Rebuilt Dashboard channel P&L around manually entered monthly Foodpanda paychecks, branch-level commission, and non-ingredient cash expenses; pending Foodpanda units are excluded from totals.
-- Added per-purpose cash-expense inclusion controls and the Foodpanda paycheck completion checklist.
-- Updated Dashboard P&L print layout to landscape and expanded its report columns.
-- Updated login account selection to compact circular profile avatars in a horizontal row.
-- Updated dispatch print/PDF layout handling for compact, two-column item rendering on longer dispatch slips; the on-screen dispatch editor and data model remain unchanged.
-- Preserved existing salary and Bills and rent calculations, roles, PIN authentication, backend routes, Supabase schema, and environment variable names.
-- Service-worker cache remains at v16.

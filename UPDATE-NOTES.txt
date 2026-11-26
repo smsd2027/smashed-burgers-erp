@@ -29,14 +29,3 @@ Checks performed:
 
 Not live-tested:
 - No connection was made to your production Render service or Supabase database.
-
-2026-11-26 P&L AND INTERFACE POLISH
-- Restored a consistent Smashed Burgers charcoal-and-yellow login treatment; removed the brown profile-panel styling that did not match the main ERP brand.
-- Reworked the Dashboard P&L presentation with clearer KPI cards, a more readable report header, inline Foodpanda commission-rate labels beside branch names, and a responsive horizontally scrollable report table.
-- Removed the standalone Commission % table column; the actual commission percentage now appears beside each Foodpanda branch/channel label.
-- Corrected Gulshan and Dhanmondi Bills & rent allocation: the full branch overhead is charged to Dine In and zero is allocated to Foodpanda.
-- P&L sales now display net Dine In sales after adjustments, while Foodpanda profit continues to use the actual paycheck received. Pending Foodpanda paychecks remain excluded from totals and profit.
-- Added a clear P&L calculation note and a print action; Dashboard printing remains landscape.
-- Service-worker cache advanced to v17 so clients fetch the updated interface.
-- Backend routes, Supabase schema, credentials, stored operational data, and role permissions were not changed.
-- Validation: inline JavaScript syntax, Python backend compilation, and ZIP integrity passed. Live Render/Supabase and in-browser visual testing were not performed.

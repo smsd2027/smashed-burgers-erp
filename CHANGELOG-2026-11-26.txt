@@ -1,0 +1,25 @@
+SMASHED BURGERS ERP - UPDATE 2026-11-26
+
+DASHBOARD P&L (matches the Google Sheet "Sales Report")
+- Columns: Total sale, Paycheck received, Foodpanda commission, Commission %, Food expense, Salary, Bills and rent, Non-ingredient expense, Total expense, Profit, Profit %.
+- Foodpanda paycheck is typed by Admin per channel and month, directly in the table. Commission = total sale - paycheck. Commission % is the real figure for each channel (hover for 2 decimals). The old flat Foodpanda % is no longer used in the P&L.
+- Channels without a paycheck show "Pending" and are left out of the totals, with a banner.
+- Non-ingredient expense = Expenses > Expense from cash (cash book plus transportation), same totals as that tab. Shared between Dine In and Foodpanda at Gulshan and Dhanmondi by sales. Salary and Bills and rent are unchanged.
+- Dashboard > "Cash purposes counted in the P&L": untick a purpose (for example STAFF ADV) to leave it out.
+- Total expense = food + salary + bills and rent + non-ingredient. Commission is not deducted again. Profit = paycheck received - total expense.
+- Past-month typed totals still work; those rows are tagged "manual".
+- Admin checklist shows "Foodpanda paychecks entered". Dashboard prints and exports as one landscape page.
+- New saved data: paychecks (pc) and the purpose switches (px). Cashier and staff accounts never receive them.
+
+DISPATCH PRINT AND PDF
+- Daily dispatch always prints on ONE A4 page. Rows and text scale down automatically; above about 31 items it switches to two side-by-side columns.
+- "Dispatched by" and "Received by" are always pinned to the bottom of the page, even with one item. Above roughly 80 items it flows onto a second page, with the signatures on the last page.
+- Print and Download PDF behave the same.
+
+LOGIN
+- Account picker redesigned as round profile pictures (Admin shield with crown, Cashier cash register, Smashed Burgers logo). The chosen picture also shows on the PIN screen.
+
+OTHER
+- Removed the plain-text initial PINs from the 2026-11-04 changelog.
+- Fixed the smaller "1" key on the PIN pad.
+- Service worker cache version v17.
