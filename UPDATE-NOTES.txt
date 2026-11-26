@@ -71,3 +71,6 @@ Checks performed:
 Not live-tested:
 - No connection was made to the production Render service or Supabase database. Actual live data and browser workflow still need confirmation in the deployed environment.
 - Fixed a historical-sales edge case: an explicit zero sales override is now respected instead of silently falling back to item-level sales. Admin can use “Use item sales” to clear the override and return to calculated totals.
+
+
+2026-11-26 UI refinement: restored the familiar dashboard snapshot and P&L layout; moved Foodpanda actual payout entry to Sales > Overview; refined PIN keypad spacing and panel sizing; standardized Smashed Burgers charcoal/yellow/cream visual theme; bumped service-worker cache version.
