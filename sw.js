@@ -1,4 +1,4 @@
-const CACHE = 'smashed-erp-shell-v18-brand-refined';
+const CACHE = 'smashed-erp-shell-v17';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 const NETWORK_TIMEOUT_MS = 4000;
 
