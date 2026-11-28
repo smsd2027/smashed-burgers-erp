@@ -1,0 +1,31 @@
+SMASHED BURGERS ERP - UPDATE 2026-11-28
+
+DISPATCH PRINT AND PDF
+- Print on Daily Dispatches now uses its own one-page A4 slip layout: logo header, Branch / Date / Items summary, a clean item table, and signature boxes pinned to the bottom of the page.
+- The slip fits itself to one page automatically: bigger rows for short lists, then two or three side-by-side columns and smaller rows for long lists (tested up to 110 items on one page; beyond about 125 items it continues on a second page instead of cutting items).
+- "Dispatched by" and "Received by" are now proper boxes with a dark title bar and Name / Signature / Date & time lines. The Status column prints an empty tick box.
+- Download PDF uses the same signature boxes, the table always shows every item (previously extra items could be dropped when the list was long), the screen note no longer overlaps the signatures, and column widths are sensible.
+- Print and Ctrl+P both use the new layout.
+
+P&L
+- VAT is no longer counted: Dine In net sales = item sales + service charge - complimentary/gift - discount. The VAT row was removed from Sales > Dine In and from the Sales Overview. Old VAT values already saved are kept in the data but ignored.
+- Service charge stays included (the owners keep it).
+
+FOODPANDA PAYCHECK
+- Sales > Foodpanda and Sales > Overview now have a "Foodpanda paychecks" table: type the paycheck for each Foodpanda branch and month. It shows sales, commission, commission % and a status (Pending / Entered / Check amount) and saves when you leave the box.
+- The same Paycheck box is on the Dashboard P&L rows (Admin only), so you can type it in either place.
+- Invalid or negative entries are refused with a message instead of being saved as 0.
+
+FIXES
+- Dashboard "Cash expense inclusion" tick-boxes no longer break (or run injected text) when a purpose name contains an apostrophe or quote.
+- Service worker cache advanced to v18 so phones fetch the new app.
+
+NOT CHANGED
+- Accounts, PINs, roles and permissions; server.py; Supabase schema; Render settings; environment variable names; Dashboard P&L logic other than VAT.
+
+CORRECTION TO EARLIER NOTES
+- The 2026-11-04 notes said Supabase writes are version-checked and that JPEG start/end markers are verified. In the code, the Supabase save is a plain upsert and only the JPEG start marker is checked.
+
+TESTED
+- Inline JavaScript syntax; Python compile; headless Chrome print-to-PDF of the dispatch slip with 0, 5, 24, 40, 70, 110 and 150 items; PDF download with 8, 45 and 120 items; paycheck entry and save in Sales and Dashboard; VAT exclusion (service charge 1000, VAT 500, complimentary 100, discount 50 gives net adjustment 850); apostrophe purpose toggle; Dashboard print still one landscape page.
+- Not tested against your live Render / Supabase deployment.
